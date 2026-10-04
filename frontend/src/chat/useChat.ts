@@ -118,6 +118,7 @@ export function useChat() {
             if (wasSelecting || event.code === 'thread_unavailable' || event.code === 'conversation_not_found') {
               selectedIdRef.current = null
               setSelectedId(null)
+              setMessages([])
               window.localStorage.removeItem(savedConversationKey)
             }
             if (event.code !== 'invalid_message' && event.code !== 'turn_in_progress') setTurn('failed')
