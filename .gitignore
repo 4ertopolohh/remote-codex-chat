@@ -1,0 +1,29 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+
+# Python
+backend/.venv/
+backend/**/__pycache__/
+backend/**/*.py[cod]
+backend/.pytest_cache/
+backend/.ruff_cache/
+backend/.coverage
+backend/htmlcov/
+
+# Runtime data
+backend/data/*.db
+backend/data/*.sqlite
+backend/data/*.sqlite3
+backend/data/uploads/
+backend/data/tmp/
+
+# OS
+Thumbs.db
+.DS_Store
