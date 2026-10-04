@@ -1,2 +1,2 @@
 .control { display: flex; flex-direction: column; gap: .25rem; }
-.control select { font: inherit; padding: .4rem; }
+.control select { min-height: var(--field-height); padding: var(--space-2) var(--space-4); border: var(--stroke); border-radius: var(--radius-field); background: var(--color-canvas); color: var(--color-ink); font: inherit; }

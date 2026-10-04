@@ -1,1 +1,44 @@
-:root { --border: #bbb; --muted: #555; }
+// Values observed in TriadStudio styles and chat/control modules.
+:root {
+  --color-ink: #303030;
+  --color-paper: #f2f2f2;
+  --color-canvas: #e5e5e5;
+  --color-accent: #7497dc;
+  --color-accent-deep: #5c83d2;
+  --color-muted: #686868;
+  --color-border: #c9c9c9;
+  --color-panel: #e3e3e3;
+  --color-danger: #de0e0e;
+  --color-success: #70e9a4;
+  --color-warning: #f7a829;
+
+  --font-body: 'Actay', sans-serif;
+  --font-emphasis: 'Actay Wide', 'Actay', sans-serif;
+  --font-display: 'AKONY', 'Actay Wide', sans-serif;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 10px;
+  --space-4: 15px;
+  --space-5: 20px;
+  --space-6: 25px;
+  --space-7: 30px;
+  --radius-field: 12px;
+  --radius-mobile-menu: 15px;
+  --radius-popover: 25px;
+  --radius-dialog: 25px;
+  --radius-panel: 40px;
+  --radius-pill: 999px;
+  --control-height: 40px;
+  --field-height: 46px;
+  --stroke: 1px solid var(--color-border);
+  --glass-light: rgb(227 227 227 / 64%);
+  --glass-blur: blur(15px);
+  --motion-fast: 140ms ease-out;
+  --motion-standard: 350ms ease;
+  --motion-relaxed: 500ms ease;
+
+  // Starter module compatibility until RC-009 adopts semantic properties.
+  --border: var(--color-border);
+  --muted: var(--color-muted);
+}

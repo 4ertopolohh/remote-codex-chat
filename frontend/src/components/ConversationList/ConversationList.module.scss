@@ -1,5 +1,6 @@
 .list { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
 .list ul { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0; padding: 0; list-style: none; }
-.list button { padding: .35rem .6rem; border: 1px solid var(--border); border-radius: .4rem; background: transparent; cursor: pointer; }
+.list button { min-height: var(--control-height); padding: var(--space-2) var(--space-4); border: var(--stroke); border-radius: var(--radius-pill); background: var(--color-paper); color: var(--color-ink); transition: background-color var(--motion-relaxed), color var(--motion-relaxed); }
+.list button:hover:not(:disabled), .list button[aria-current='page'] { background: var(--color-ink); color: var(--color-paper); }
 .list button[aria-current='page'] { font-weight: bold; }
-.list button:disabled { cursor: default; }
+.list button:disabled { cursor: not-allowed; }

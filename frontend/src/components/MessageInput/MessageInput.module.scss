@@ -1,4 +1,6 @@
 .input { display: flex; flex-direction: column; gap: .5rem; }
-.input textarea { width: 100%; resize: vertical; padding: .6rem; font: inherit; }
+.input textarea { width: 100%; min-height: var(--field-height); resize: vertical; padding: var(--space-3) var(--space-4); border: var(--stroke); border-radius: var(--radius-field); background: var(--color-canvas); color: var(--color-ink); font: inherit; }
 .actions { display: flex; justify-content: flex-end; gap: .5rem; }
-.input button { padding: .5rem 1.25rem; }
+.input button { min-height: var(--control-height); padding: var(--space-2) var(--space-5); border: 0; border-radius: var(--radius-pill); background: var(--color-accent); color: var(--color-paper); font-family: var(--font-emphasis); transition: background-color var(--motion-relaxed), transform var(--motion-relaxed); }
+.input button:hover:not(:disabled) { background: var(--color-ink); transform: scale(.99); }
+.input button:disabled { background: var(--color-ink); opacity: .38; }
