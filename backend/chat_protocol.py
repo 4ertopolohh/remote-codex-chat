@@ -95,6 +95,7 @@ class ChatError(BaseModel):
         "collaboration_unavailable",
         "no_active_turn",
         "steer_failed",
+        "stop_failed",
     ]
 
 

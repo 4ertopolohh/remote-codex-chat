@@ -75,5 +75,7 @@ only after `turn_started` and disables both while a stop request is pending.
 Collaboration modes require `RC_EXPERIMENTAL_FEATURES=1`. Without that explicit
 setting, the bridge does not opt into the experimental Codex protocol or query
 `collaborationMode/list`. With it, the UI shows only modes returned by the runtime.
+Selecting a mode applies any model and reasoning preset returned by the runtime;
+the user can then choose another supported value before starting the turn.
 Missing or rejected experimental discovery produces an empty mode list and normal
 chat continues. See [capability research](poc/RC-005-capabilities-research.md).

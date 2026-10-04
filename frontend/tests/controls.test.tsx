@@ -100,3 +100,24 @@ test('discovered experimental mode is shown and sent for a new turn', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
   expect(socket.commands()).toContainEqual({ type: 'submit_prompt', text: 'make a plan', model_id: 'first', reasoning_effort: 'medium', collaboration_mode: 'plan' })
 })
+
+test('mode preset updates displayed reasoning and a failed stop restores controls', () => {
+  render(<App />)
+  const socket = FakeSocket.instances[0]
+  socket.emit({ type: 'ready' })
+  socket.emit({ type: 'capabilities', models: [
+    { id: 'first', model: 'first', display_name: 'First', reasoning_efforts: ['low', 'medium'], default_reasoning_effort: 'low', is_default: true },
+    { id: 'second', model: 'runtime-second', display_name: 'Second', reasoning_efforts: ['medium'], default_reasoning_effort: 'medium', is_default: false },
+  ], collaboration_modes: [{ name: 'Plan', mode: 'plan', model: 'runtime-second', reasoning_effort: 'medium' }] })
+  socket.emit({ type: 'conversation_selected', conversation: { id: 'c1', project_id: 'default', title: 'Chat', created_at: 'now', updated_at: 'now' }, messages: [] })
+  fireEvent.change(screen.getByLabelText('Mode'), { target: { value: 'plan' } })
+  expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('second')
+  expect((screen.getByLabelText('Reasoning') as HTMLSelectElement).value).toBe('medium')
+  fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'plan it' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  socket.emit({ type: 'turn_started' })
+  fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+  socket.emit({ type: 'error', code: 'stop_failed' })
+  expect(screen.getByRole('button', { name: 'Stop' }).hasAttribute('disabled')).toBe(false)
+  expect(screen.getByRole('button', { name: 'Steer active turn' }).hasAttribute('disabled')).toBe(true)
+})

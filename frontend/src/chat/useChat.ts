@@ -164,6 +164,8 @@ export function useChat() {
           case 'turn_completed': setTurn(event.status); setActiveTurn(false); setStopPending(false); setAgentStatus(event.status); break
           case 'error': {
             setError(event.code)
+            if (event.code === 'stop_failed') setStopPending(false)
+            if (event.code === 'codex_failure') { setActiveTurn(false); setStopPending(false) }
             if (pendingPromptRef.current !== null) {
               const pending = pendingPromptRef.current
               pendingPromptRef.current = null
@@ -180,7 +182,7 @@ export function useChat() {
               setMessages([])
               window.localStorage.removeItem(savedConversationKey)
             }
-            if (!['invalid_message', 'turn_in_progress', 'no_active_turn', 'steer_failed', 'model_unavailable', 'reasoning_unavailable', 'collaboration_unavailable'].includes(event.code)) setTurn('failed')
+            if (!['invalid_message', 'turn_in_progress', 'no_active_turn', 'steer_failed', 'stop_failed', 'model_unavailable', 'reasoning_unavailable', 'collaboration_unavailable'].includes(event.code)) setTurn('failed')
             break
           }
         }
@@ -246,6 +248,22 @@ export function useChat() {
   function selectMode(mode: string | null): void {
     if (turn === 'running' || (mode && !collaborationModes.some(item => item.mode === mode))) return
     setSelectedMode(mode)
+    const preset = collaborationModes.find(item => item.mode === mode)
+    const model = preset?.model ? models.find(item => item.model === preset.model || item.id === preset.model) : models.find(item => item.id === selectedModelId)
+    if (model && model.id !== selectedModelId) {
+      setSelectedModelId(model.id)
+      window.localStorage.setItem(savedModelKey, model.id)
+    }
+    if (model) {
+      const effort = preset?.reasoning_effort && model.reasoning_efforts.includes(preset.reasoning_effort)
+        ? preset.reasoning_effort
+        : model.id !== selectedModelId || !selectedEffort || !model.reasoning_efforts.includes(selectedEffort)
+          ? model.default_reasoning_effort ?? model.reasoning_efforts[0] ?? null
+          : selectedEffort
+      setSelectedEffort(effort)
+      if (effort) window.localStorage.setItem(savedEffortKey, effort)
+      else window.localStorage.removeItem(savedEffortKey)
+    }
   }
 
   function refreshCapabilities(): void {

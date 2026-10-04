@@ -39,6 +39,7 @@ from codex_bridge import (
     ApprovalDeclined,
     BridgeError,
     CodexBridge,
+    CollaborationCapability,
     ModelCapability,
     OperationFailed,
     ThreadStatusChanged,
@@ -132,14 +133,17 @@ def create_app(
             except BridgeError:
                 return ()
 
+        async def discover_modes() -> tuple[CollaborationCapability, ...]:
+            if not experimental:
+                return ()
+            try:
+                return await bridge.list_collaboration_modes()
+            except BridgeError:
+                return ()
+
         async def send_capabilities() -> None:
             models = await discover_models()
-            modes = ()
-            if experimental:
-                try:
-                    modes = await bridge.list_collaboration_modes()
-                except BridgeError:
-                    pass
+            modes = await discover_modes()
             await send_event(
                 ws,
                 Capabilities(
@@ -213,16 +217,46 @@ def create_app(
                         )
                         continue
                     models = await discover_models()
+                    modes = await discover_modes() if message.collaboration_mode else ()
+                    selected_mode = next(
+                        (
+                            mode
+                            for mode in modes
+                            if mode.mode == message.collaboration_mode
+                        ),
+                        None,
+                    )
+                    if message.collaboration_mode and selected_mode is None:
+                        await send_event(
+                            ws, ChatError(code="collaboration_unavailable")
+                        )
+                        continue
+                    preset_model = None
                     if message.model_id:
                         selected_model = next(
                             (item for item in models if item.id == message.model_id),
                             None,
                         )
                     else:
+                        preset_model = (
+                            next(
+                                (
+                                    item
+                                    for item in models
+                                    if item.model == selected_mode.model
+                                    or item.id == selected_mode.model
+                                ),
+                                None,
+                            )
+                            if selected_mode and selected_mode.model
+                            else None
+                        )
                         selected_model = next(
                             (item for item in models if item.is_default),
                             models[0] if models else None,
                         )
+                        if preset_model:
+                            selected_model = preset_model
                     if message.model_id and selected_model is None:
                         await send_event(ws, ChatError(code="model_unavailable"))
                         await send_capabilities()
@@ -235,20 +269,19 @@ def create_app(
                         await send_event(ws, ChatError(code="reasoning_unavailable"))
                         await send_capabilities()
                         continue
-                    modes = ()
-                    if message.collaboration_mode:
-                        if experimental:
-                            try:
-                                modes = await bridge.list_collaboration_modes()
-                            except BridgeError:
-                                pass
-                        if selected_model is None or not any(
-                            mode.mode == message.collaboration_mode for mode in modes
-                        ):
-                            await send_event(
-                                ws, ChatError(code="collaboration_unavailable")
-                            )
-                            continue
+                    if message.collaboration_mode and (
+                        selected_model is None
+                        or (
+                            selected_mode is not None
+                            and selected_mode.model
+                            and not message.model_id
+                            and preset_model is None
+                        )
+                    ):
+                        await send_event(
+                            ws, ChatError(code="collaboration_unavailable")
+                        )
+                        continue
                     if conversation is None:
                         thread_id = await bridge.start_thread(configured_project)
                         conversation = store.create(project_id, thread_id)
@@ -263,6 +296,14 @@ def create_app(
                         message.text,
                         model=selected_model.model if selected_model else None,
                         effort=message.reasoning_effort
+                        or (
+                            selected_mode.reasoning_effort
+                            if selected_mode
+                            and selected_model
+                            and selected_mode.reasoning_effort
+                            in selected_model.reasoning_efforts
+                            else None
+                        )
                         or (
                             selected_model.default_reasoning_effort
                             if selected_model
@@ -343,13 +384,19 @@ def create_app(
                                     await send_capabilities()
                                 elif isinstance(active_message, StopTurn):
                                     if not stopping:
-                                        await bridge.interrupt_turn(
-                                            conversation.thread_id, turn_id
-                                        )
-                                        stopping = True
-                                        await send_event(
-                                            ws, AgentStatus(status="stopping")
-                                        )
+                                        try:
+                                            await bridge.interrupt_turn(
+                                                conversation.thread_id, turn_id
+                                            )
+                                        except OperationFailed:
+                                            await send_event(
+                                                ws, ChatError(code="stop_failed")
+                                            )
+                                        else:
+                                            stopping = True
+                                            await send_event(
+                                                ws, AgentStatus(status="stopping")
+                                            )
                                 elif isinstance(active_message, SteerTurn):
                                     if stopping:
                                         await send_event(
