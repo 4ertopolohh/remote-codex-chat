@@ -69,7 +69,9 @@ class AppServerClient:
         request_timeout: float = 60.0,
         stderr_tail_lines: int = 100,
     ) -> None:
-        self._command = tuple(command or ("codex", "app-server", "--listen", "stdio://"))
+        self._command = tuple(
+            command or ("codex", "app-server", "--listen", "stdio://")
+        )
         self._request_timeout = request_timeout
         self._stderr_tail: deque[str] = deque(maxlen=stderr_tail_lines)
         self._process: asyncio.subprocess.Process | None = None
@@ -78,8 +80,9 @@ class AppServerClient:
         self._write_lock = asyncio.Lock()
         self._next_request_id = 1
         self._pending: dict[RequestId, _PendingRequest] = {}
-        self._events: asyncio.Queue[IncomingEvent] = asyncio.Queue()
+        self._events: asyncio.Queue[IncomingEvent | Exception] = asyncio.Queue()
         self._closed = False
+        self._terminal_error: Exception | None = None
 
     @property
     def command(self) -> tuple[str, ...]:
@@ -102,6 +105,8 @@ class AppServerClient:
         await self.close()
 
     async def start(self) -> None:
+        if self._closed:
+            raise AppServerError("codex app-server client is closed")
         if self._process is not None:
             return
 
@@ -117,8 +122,12 @@ class AppServerClient:
                 f"Cannot start {self._command[0]!r}. Ensure Codex CLI is installed and on PATH."
             ) from exc
 
-        self._reader_task = asyncio.create_task(self._read_stdout(), name="codex-app-server-stdout")
-        self._stderr_task = asyncio.create_task(self._read_stderr(), name="codex-app-server-stderr")
+        self._reader_task = asyncio.create_task(
+            self._read_stdout(), name="codex-app-server-stdout"
+        )
+        self._stderr_task = asyncio.create_task(
+            self._read_stderr(), name="codex-app-server-stderr"
+        )
 
     async def initialize(
         self,
@@ -153,6 +162,8 @@ class AppServerClient:
         timeout: float | None = None,
     ) -> Any:
         await self.start()
+        if self._terminal_error is not None:
+            raise self._terminal_error
         loop = asyncio.get_running_loop()
         request_id = self._next_request_id
         self._next_request_id += 1
@@ -176,14 +187,18 @@ class AppServerClient:
         finally:
             self._pending.pop(request_id, None)
 
-    async def notify(self, method: str, params: Mapping[str, Any] | None = None) -> None:
+    async def notify(
+        self, method: str, params: Mapping[str, Any] | None = None
+    ) -> None:
         await self.start()
         message: JsonObject = {"method": method}
         if params is not None:
             message["params"] = dict(params)
         await self._send(message)
 
-    async def respond(self, request_id: RequestId, result: Mapping[str, Any] | None = None) -> None:
+    async def respond(
+        self, request_id: RequestId, result: Mapping[str, Any] | None = None
+    ) -> None:
         await self._send({"id": request_id, "result": dict(result or {})})
 
     async def respond_error(
@@ -200,12 +215,20 @@ class AppServerClient:
         await self._send({"id": request_id, "error": error})
 
     async def next_event(self, *, timeout: float | None = None) -> IncomingEvent:
+        if self._terminal_error is not None and self._events.empty():
+            raise self._terminal_error
         if timeout is None:
-            return await self._events.get()
-        try:
-            return await asyncio.wait_for(self._events.get(), timeout=timeout)
-        except TimeoutError as exc:
-            raise AppServerError("Timed out waiting for an app-server event") from exc
+            event = await self._events.get()
+        else:
+            try:
+                event = await asyncio.wait_for(self._events.get(), timeout=timeout)
+            except TimeoutError as exc:
+                raise AppServerError(
+                    "Timed out waiting for an app-server event"
+                ) from exc
+        if isinstance(event, Exception):
+            raise event
+        return event
 
     async def close(self) -> None:
         if self._closed:
@@ -237,26 +260,38 @@ class AppServerClient:
             if task is not None and not task.done():
                 task.cancel()
         await asyncio.gather(
-            *(task for task in (self._reader_task, self._stderr_task) if task is not None),
+            *(
+                task
+                for task in (self._reader_task, self._stderr_task)
+                if task is not None
+            ),
             return_exceptions=True,
         )
 
-        self._fail_pending(AppServerError(f"codex app-server exited with code {process.returncode}"))
+        self._fail_pending(
+            AppServerError(f"codex app-server exited with code {process.returncode}")
+        )
 
     async def _send(self, message: Mapping[str, Any]) -> None:
+        if self._terminal_error is not None:
+            raise self._terminal_error
         process = self._process
         if process is None or process.stdin is None:
             raise AppServerError("codex app-server is not running")
         if process.returncode is not None:
             raise AppServerError(self._process_exit_message(process.returncode))
 
-        payload = json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        payload = json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8"
+        )
         async with self._write_lock:
             try:
                 process.stdin.write(payload + b"\n")
                 await process.stdin.drain()
             except (BrokenPipeError, ConnectionResetError) as exc:
-                raise AppServerError("Lost stdin connection to codex app-server") from exc
+                raise AppServerError(
+                    "Lost stdin connection to codex app-server"
+                ) from exc
 
     async def _read_stdout(self) -> None:
         process = self._process
@@ -271,17 +306,21 @@ class AppServerClient:
                 try:
                     message = json.loads(raw_line)
                 except json.JSONDecodeError:
-                    self._fail_pending(
+                    self._fail_all(
                         AppServerProtocolError(
                             "Invalid JSON from app-server stdout: "
                             + raw_line.decode("utf-8", "replace").rstrip()
                         )
                     )
-                    continue
+                    return
 
                 if not isinstance(message, dict):
-                    self._fail_pending(AppServerProtocolError("app-server emitted a non-object JSON value"))
-                    continue
+                    self._fail_all(
+                        AppServerProtocolError(
+                            "app-server emitted a non-object JSON value"
+                        )
+                    )
+                    return
 
                 self._route_message(message)
         finally:
@@ -289,7 +328,7 @@ class AppServerClient:
                 returncode = process.returncode
                 if returncode is None:
                     returncode = await process.wait()
-                self._fail_pending(AppServerError(self._process_exit_message(returncode)))
+                self._fail_all(AppServerError(self._process_exit_message(returncode)))
 
     async def _read_stderr(self) -> None:
         process = self._process
@@ -302,18 +341,32 @@ class AppServerClient:
             self._stderr_tail.append(raw_line.decode("utf-8", "replace").rstrip())
 
     def _route_message(self, message: JsonObject) -> None:
-        if "id" in message and ("result" in message or "error" in message) and "method" not in message:
+        if (
+            "id" in message
+            and ("result" in message or "error" in message)
+            and "method" not in message
+        ):
             request_id = message["id"]
+            if not isinstance(request_id, (int, str)):
+                self._fail_all(AppServerProtocolError("Invalid app-server response ID"))
+                return
             pending = self._pending.get(request_id)
             if pending is None or pending.future.done():
                 return
 
-            error = message.get("error")
-            if isinstance(error, dict):
+            if "error" in message:
+                error = message["error"]
+                if not isinstance(error, dict):
+                    self._fail_all(
+                        AppServerProtocolError("Invalid app-server error response")
+                    )
+                    return
                 pending.future.set_exception(
                     AppServerRpcError(
                         pending.method,
-                        error.get("code") if isinstance(error.get("code"), int) else None,
+                        error.get("code")
+                        if isinstance(error.get("code"), int)
+                        else None,
                         str(error.get("message", "Unknown JSON-RPC error")),
                         error.get("data"),
                     )
@@ -324,27 +377,40 @@ class AppServerClient:
 
         method = message.get("method")
         if not isinstance(method, str):
-            self._fail_pending(AppServerProtocolError(f"Unrecognized app-server message: {message!r}"))
+            self._fail_all(
+                AppServerProtocolError(f"Unrecognized app-server message: {message!r}")
+            )
             return
 
-        params = message.get("params")
-        normalized_params = params if isinstance(params, dict) else {}
+        params = message.get("params", {})
+        if not isinstance(params, dict):
+            self._fail_all(AppServerProtocolError("Invalid app-server message params"))
+            return
 
         if "id" in message:
+            if not isinstance(message["id"], (int, str)):
+                self._fail_all(AppServerProtocolError("Invalid app-server request ID"))
+                return
             self._events.put_nowait(
                 ServerRequest(
                     request_id=message["id"],
                     method=method,
-                    params=normalized_params,
+                    params=params,
                 )
             )
         else:
-            self._events.put_nowait(ServerNotification(method=method, params=normalized_params))
+            self._events.put_nowait(ServerNotification(method=method, params=params))
 
     def _fail_pending(self, exc: Exception) -> None:
         for pending in tuple(self._pending.values()):
             if not pending.future.done():
                 pending.future.set_exception(exc)
+
+    def _fail_all(self, exc: Exception) -> None:
+        if self._terminal_error is None:
+            self._terminal_error = exc
+            self._events.put_nowait(exc)
+        self._fail_pending(exc)
 
     def _process_exit_message(self, returncode: int | None) -> str:
         detail = f"codex app-server exited with code {returncode}"

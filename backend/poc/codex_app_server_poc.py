@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .app_server_client import (
+from codex_bridge._transport import (
     AppServerClient,
     AppServerError,
     AppServerRpcError,
@@ -25,7 +25,9 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Phase 0 PoC client for codex app-server over stdio."
     )
-    parser.add_argument("--codex-bin", default="codex", help="Codex executable name or path.")
+    parser.add_argument(
+        "--codex-bin", default="codex", help="Codex executable name or path."
+    )
     parser.add_argument(
         "--request-timeout",
         type=float,
@@ -36,7 +38,9 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("models", help="Run model/list and print the response.")
-    subparsers.add_parser("limits", help="Run account/rateLimits/read and print the response.")
+    subparsers.add_parser(
+        "limits", help="Run account/rateLimits/read and print the response."
+    )
 
     chat = subparsers.add_parser("chat", help="Start a thread and run one turn.")
     _add_turn_args(chat, needs_project=True)
@@ -47,7 +51,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional thread approval policy override.",
     )
 
-    resume = subparsers.add_parser("resume", help="Resume a persisted thread and run one turn.")
+    resume = subparsers.add_parser(
+        "resume", help="Resume a persisted thread and run one turn."
+    )
     resume.add_argument("--thread-id", required=True)
     _add_turn_args(resume, needs_project=False)
 
@@ -91,7 +97,9 @@ async def _run(args: argparse.Namespace) -> int:
     try:
         async with client:
             init = await client.initialize()
-            print(f"Initialized app-server: {init.get('userAgent', 'unknown user-agent')}")
+            print(
+                f"Initialized app-server: {init.get('userAgent', 'unknown user-agent')}"
+            )
 
             if args.command == "models":
                 result = await client.request("model/list", {})
