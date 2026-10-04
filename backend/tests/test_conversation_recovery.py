@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app import create_app
-from codex_bridge import OperationFailed
+from codex_bridge import ModelCapability, OperationFailed
 
 
 class FakeBridge:
@@ -36,9 +36,14 @@ class FakeBridge:
     async def read_messages(self, thread_id: str) -> list[dict[str, str]]:
         return [{"role": "user", "text": "earlier prompt"}] if self.turns else []
 
-    async def start_turn(self, thread_id: str, prompt: str) -> str:
+    async def start_turn(
+        self, thread_id: str, prompt: str, **options: str | None
+    ) -> str:
         self.turns.append((thread_id, prompt))
         return "turn-1"
+
+    async def list_models(self) -> tuple[ModelCapability, ...]:
+        return ()
 
     async def next_event(self) -> object:
         await asyncio.Future()

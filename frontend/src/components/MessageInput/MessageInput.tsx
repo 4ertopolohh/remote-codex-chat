@@ -1,15 +1,18 @@
 import { useState, type FormEvent } from 'react'
 import styles from './MessageInput.module.scss'
 
-export function MessageInput({ onSend, disabled }: { onSend: (text: string) => boolean; disabled: boolean }) {
+export function MessageInput({ onSend, onSteer, onStop, running, activeTurn, stopPending, disabled }: { onSend: (text: string) => boolean; onSteer: (text: string) => boolean; onStop: () => void; running: boolean; activeTurn: boolean; stopPending: boolean; disabled: boolean }) {
   const [text, setText] = useState('')
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (onSend(text.trim())) setText('')
+    if ((running ? onSteer : onSend)(text.trim())) setText('')
   }
   return <form className={styles.input} onSubmit={submit}>
     <label htmlFor="prompt">Message</label>
     <textarea id="prompt" value={text} onChange={event => setText(event.target.value)} rows={3} maxLength={10000} disabled={disabled} />
-    <button type="submit" disabled={disabled || !text.trim()}>Send</button>
+    <div className={styles.actions}>
+      {running && <button type="button" onClick={onStop} disabled={disabled || !activeTurn || stopPending}>Stop</button>}
+      <button type="submit" disabled={disabled || (running && (!activeTurn || stopPending)) || !text.trim()}>{running ? 'Steer active turn' : 'Send'}</button>
+    </div>
   </form>
 }

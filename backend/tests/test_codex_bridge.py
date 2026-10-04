@@ -19,10 +19,16 @@ from codex_bridge import (
 )
 
 
-async def bridge_for(tmp_path: Path, script: str) -> CodexBridge:
+async def bridge_for(
+    tmp_path: Path, script: str, *, experimental_features: bool = False
+) -> CodexBridge:
     server = tmp_path / "fake_server.py"
     server.write_text(script, encoding="utf-8")
-    bridge = CodexBridge(command=(sys.executable, "-S", str(server)), request_timeout=2)
+    bridge = CodexBridge(
+        command=(sys.executable, "-S", str(server)),
+        request_timeout=2,
+        experimental_features=experimental_features,
+    )
     await bridge.start()
     return bridge
 
@@ -137,6 +143,101 @@ sys.stdin.readline()
             await bridge.start_turn("thread-1", "hello")
     finally:
         await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_catalog_is_normalized_and_steer_uses_active_turn_id(
+    tmp_path: Path,
+) -> None:
+    bridge = await bridge_for(
+        tmp_path,
+        HANDSHAKE
+        + """
+models = read()
+assert models['method'] == 'model/list'
+send({'id': models['id'], 'result': {'data': [
+    {'id': 'first', 'model': 'runtime-first', 'displayName': 'First', 'hidden': False,
+     'isDefault': True, 'defaultReasoningEffort': 'low',
+     'supportedReasoningEfforts': [{'reasoningEffort': 'low', 'description': 'Fast'},
+                                   {'reasoningEffort': 'high', 'description': 'Deep'}]},
+    {'id': 'hidden', 'model': 'hidden', 'displayName': 'Hidden', 'hidden': True,
+     'isDefault': False, 'defaultReasoningEffort': 'low', 'supportedReasoningEfforts': []}
+], 'nextCursor': None}})
+turn = read()
+assert turn['method'] == 'turn/start'
+assert turn['params']['model'] == 'runtime-first'
+assert turn['params']['effort'] == 'high'
+send({'id': turn['id'], 'result': {'turn': {'id': 'turn-1'}}})
+steer = read()
+assert steer['method'] == 'turn/steer'
+assert steer['params'] == {'threadId': 'thread-1', 'expectedTurnId': 'turn-1',
+                            'input': [{'type': 'text', 'text': 'change direction'}]}
+send({'id': steer['id'], 'result': {'turnId': 'turn-1'}})
+sys.stdin.readline()
+""",
+    )
+    try:
+        catalog = await bridge.list_models()
+        assert [
+            (model.id, model.model, model.reasoning_efforts) for model in catalog
+        ] == [("first", "runtime-first", ("low", "high"))]
+        assert (
+            await bridge.start_turn(
+                "thread-1", "hello", model="runtime-first", effort="high"
+            )
+            == "turn-1"
+        )
+        await bridge.steer_turn("thread-1", "turn-1", "change direction")
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_model_catalog_pagination_and_optional_experimental_discovery(
+    tmp_path: Path,
+) -> None:
+    bridge = await bridge_for(
+        tmp_path,
+        HANDSHAKE
+        + """
+first = read()
+assert first['method'] == 'model/list' and first['params'] == {}
+send({'id': first['id'], 'result': {'data': [
+    {'id': 'one', 'model': 'one', 'displayName': 'One', 'hidden': False,
+     'isDefault': False, 'defaultReasoningEffort': 'medium',
+     'supportedReasoningEfforts': [{'reasoningEffort': 'medium'}]}
+], 'nextCursor': 'next'}})
+second = read()
+assert second['method'] == 'model/list' and second['params'] == {'cursor': 'next'}
+send({'id': second['id'], 'result': {'data': [
+    {'id': 'two', 'model': 'two', 'displayName': 'Two', 'hidden': False,
+     'isDefault': True, 'defaultReasoningEffort': 'low',
+     'supportedReasoningEfforts': [{'reasoningEffort': 'low'}]}
+], 'nextCursor': None}})
+sys.stdin.readline()
+""",
+    )
+    try:
+        assert [model.id for model in await bridge.list_models()] == ["one", "two"]
+        assert await bridge.list_collaboration_modes() == ()
+    finally:
+        await bridge.close()
+
+    experimental = await bridge_for(
+        tmp_path,
+        HANDSHAKE
+        + """
+request = read()
+assert request['method'] == 'collaborationMode/list'
+send({'id': request['id'], 'error': {'code': -32601, 'message': 'Method not found'}})
+sys.stdin.readline()
+""",
+        experimental_features=True,
+    )
+    try:
+        assert await experimental.list_collaboration_modes() == ()
+    finally:
+        await experimental.close()
 
 
 @pytest.mark.asyncio

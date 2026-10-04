@@ -1,0 +1,3 @@
+.controls { display: flex; align-items: end; flex-wrap: wrap; gap: .75rem; }
+.controls label { display: flex; flex-direction: column; gap: .25rem; }
+.controls select, .controls button { font: inherit; padding: .4rem; }

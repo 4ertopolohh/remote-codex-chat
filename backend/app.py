@@ -6,6 +6,7 @@ import asyncio
 import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -15,15 +16,20 @@ from pydantic import TypeAdapter, ValidationError
 from chat_protocol import (
     AgentStatus,
     AssistantDelta,
+    Capabilities,
     ChatError,
     ClientMessage,
     ConversationList,
     ConversationSelected,
+    ListCapabilities,
     ListConversations,
     NewConversation,
     Ready,
     SelectConversation,
     ServerEvent,
+    SteerAccepted,
+    SteerTurn,
+    StopTurn,
     SubmitPrompt,
     TurnFinished,
     TurnStarted,
@@ -33,6 +39,7 @@ from codex_bridge import (
     ApprovalDeclined,
     BridgeError,
     CodexBridge,
+    ModelCapability,
     OperationFailed,
     ThreadStatusChanged,
     TurnCompleted,
@@ -48,7 +55,7 @@ async def send_event(ws: WebSocket, event: ServerEvent) -> None:
 
 def parse_client_message(raw: object) -> ClientMessage:
     message = _client_message_adapter.validate_python(raw)
-    if isinstance(message, SubmitPrompt) and not message.text.strip():
+    if isinstance(message, (SubmitPrompt, SteerTurn)) and not message.text.strip():
         raise ValueError("Empty prompt")
     return message
 
@@ -58,7 +65,13 @@ def create_app(
     *,
     project: Path | None = None,
     database: Path | None = None,
+    experimental_features: bool | None = None,
 ) -> FastAPI:
+    experimental = (
+        os.environ.get("RC_EXPERIMENTAL_FEATURES") == "1"
+        if experimental_features is None
+        else experimental_features
+    )
     configured_project = (
         project
         or Path(os.environ.get("RC_PROJECT_PATH", Path(__file__).resolve().parents[1]))
@@ -76,7 +89,11 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         store.initialize()
-        bridge = bridge_factory()
+        bridge = (
+            CodexBridge(experimental_features=experimental)
+            if bridge_factory is CodexBridge
+            else bridge_factory()
+        )
         app.state.bridge = bridge
         await bridge.start()
         try:
@@ -107,6 +124,30 @@ def create_app(
         bridge = app.state.bridge
         conversation = None
         turn_id: str | None = None
+        stopping = False
+
+        async def discover_models() -> tuple[ModelCapability, ...]:
+            try:
+                return await bridge.list_models()
+            except BridgeError:
+                return ()
+
+        async def send_capabilities() -> None:
+            models = await discover_models()
+            modes = ()
+            if experimental:
+                try:
+                    modes = await bridge.list_collaboration_modes()
+                except BridgeError:
+                    pass
+            await send_event(
+                ws,
+                Capabilities(
+                    models=[asdict(model) for model in models],
+                    collaboration_modes=[asdict(mode) for mode in modes],
+                ),
+            )
+
         try:
             if not bridge.ready:
                 await send_event(ws, ChatError(code="codex_unavailable"))
@@ -130,6 +171,12 @@ def create_app(
                                 ]
                             ),
                         )
+                        continue
+                    if isinstance(message, ListCapabilities):
+                        await send_capabilities()
+                        continue
+                    if isinstance(message, (StopTurn, SteerTurn)):
+                        await send_event(ws, ChatError(code="no_active_turn"))
                         continue
                     if isinstance(message, NewConversation):
                         thread_id = await bridge.start_thread(configured_project)
@@ -165,6 +212,43 @@ def create_app(
                             ),
                         )
                         continue
+                    models = await discover_models()
+                    if message.model_id:
+                        selected_model = next(
+                            (item for item in models if item.id == message.model_id),
+                            None,
+                        )
+                    else:
+                        selected_model = next(
+                            (item for item in models if item.is_default),
+                            models[0] if models else None,
+                        )
+                    if message.model_id and selected_model is None:
+                        await send_event(ws, ChatError(code="model_unavailable"))
+                        await send_capabilities()
+                        continue
+                    if message.reasoning_effort and (
+                        selected_model is None
+                        or message.reasoning_effort
+                        not in selected_model.reasoning_efforts
+                    ):
+                        await send_event(ws, ChatError(code="reasoning_unavailable"))
+                        await send_capabilities()
+                        continue
+                    modes = ()
+                    if message.collaboration_mode:
+                        if experimental:
+                            try:
+                                modes = await bridge.list_collaboration_modes()
+                            except BridgeError:
+                                pass
+                        if selected_model is None or not any(
+                            mode.mode == message.collaboration_mode for mode in modes
+                        ):
+                            await send_event(
+                                ws, ChatError(code="collaboration_unavailable")
+                            )
+                            continue
                     if conversation is None:
                         thread_id = await bridge.start_thread(configured_project)
                         conversation = store.create(project_id, thread_id)
@@ -175,8 +259,18 @@ def create_app(
                             ),
                         )
                     turn_id = await bridge.start_turn(
-                        conversation.thread_id, message.text
+                        conversation.thread_id,
+                        message.text,
+                        model=selected_model.model if selected_model else None,
+                        effort=message.reasoning_effort
+                        or (
+                            selected_model.default_reasoning_effort
+                            if selected_model
+                            else None
+                        ),
+                        collaboration_mode=message.collaboration_mode,
                     )
+                    stopping = False
                     await send_event(ws, TurnStarted())
                     conversation = store.record_prompt(conversation, message.text)
                     while turn_id is not None:
@@ -189,15 +283,6 @@ def create_app(
                         for task in pending:
                             task.cancel()
                         await asyncio.gather(*pending, return_exceptions=True)
-                        if receive_task in done:
-                            try:
-                                parse_client_message(receive_task.result())
-                            except WebSocketDisconnect:
-                                raise
-                            except (ValidationError, ValueError, KeyError, TypeError):
-                                await send_event(ws, ChatError(code="invalid_message"))
-                            else:
-                                await send_event(ws, ChatError(code="turn_in_progress"))
                         if event_task in done:
                             event = event_task.result()
                             if isinstance(event, AgentMessageDelta) and (
@@ -238,6 +323,58 @@ def create_app(
                                     ),
                                 )
                                 turn_id = None
+                        if receive_task in done:
+                            try:
+                                active_message = parse_client_message(
+                                    receive_task.result()
+                                )
+                            except WebSocketDisconnect:
+                                raise
+                            except (ValidationError, ValueError, KeyError, TypeError):
+                                await send_event(ws, ChatError(code="invalid_message"))
+                            else:
+                                if turn_id is None and isinstance(
+                                    active_message, (StopTurn, SteerTurn)
+                                ):
+                                    await send_event(
+                                        ws, ChatError(code="no_active_turn")
+                                    )
+                                elif isinstance(active_message, ListCapabilities):
+                                    await send_capabilities()
+                                elif isinstance(active_message, StopTurn):
+                                    if not stopping:
+                                        await bridge.interrupt_turn(
+                                            conversation.thread_id, turn_id
+                                        )
+                                        stopping = True
+                                        await send_event(
+                                            ws, AgentStatus(status="stopping")
+                                        )
+                                elif isinstance(active_message, SteerTurn):
+                                    if stopping:
+                                        await send_event(
+                                            ws, ChatError(code="no_active_turn")
+                                        )
+                                    else:
+                                        try:
+                                            await bridge.steer_turn(
+                                                conversation.thread_id,
+                                                turn_id,
+                                                active_message.text,
+                                            )
+                                        except OperationFailed:
+                                            await send_event(
+                                                ws, ChatError(code="steer_failed")
+                                            )
+                                        else:
+                                            await send_event(
+                                                ws,
+                                                SteerAccepted(text=active_message.text),
+                                            )
+                                else:
+                                    await send_event(
+                                        ws, ChatError(code="turn_in_progress")
+                                    )
                 except BridgeError:
                     await send_event(ws, ChatError(code="codex_failure"))
                     turn_id = None

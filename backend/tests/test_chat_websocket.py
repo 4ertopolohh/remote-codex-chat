@@ -7,7 +7,13 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app import create_app
-from codex_bridge import AgentMessageDelta, ThreadStatusChanged, TurnCompleted
+from codex_bridge import (
+    AgentMessageDelta,
+    CollaborationCapability,
+    ModelCapability,
+    ThreadStatusChanged,
+    TurnCompleted,
+)
 
 
 class FakeBridge:
@@ -17,6 +23,13 @@ class FakeBridge:
         self.project: Path | None = None
         self.prompts: list[str] = []
         self.interrupted: list[tuple[str, str]] = []
+        self.steered: list[str] = []
+        self.models = (
+            ModelCapability(
+                "first", "runtime-first", "First", ("low", "high"), "low", True
+            ),
+        )
+        self.modes: tuple[CollaborationCapability, ...] = ()
 
     async def start(self) -> None:
         self.ready = True
@@ -28,9 +41,21 @@ class FakeBridge:
         self.project = project
         return "thread-1"
 
-    async def start_turn(self, thread_id: str, prompt: str) -> str:
+    async def start_turn(
+        self, thread_id: str, prompt: str, **options: str | None
+    ) -> str:
         self.prompts.append(prompt)
+        self.options = options
         return "turn-1"
+
+    async def list_models(self) -> tuple[ModelCapability, ...]:
+        return self.models
+
+    async def list_collaboration_modes(self) -> tuple[CollaborationCapability, ...]:
+        return self.modes
+
+    async def steer_turn(self, thread_id: str, turn_id: str, prompt: str) -> None:
+        self.steered.append(prompt)
 
     async def next_event(self) -> object:
         return await self.events.get()
@@ -127,3 +152,129 @@ def test_unavailable_bridge_does_not_report_ready(tmp_path: Path) -> None:
         bridge.ready = False
         with client.websocket_connect("/ws/chat") as ws:
             assert ws.receive_json() == {"type": "error", "code": "codex_unavailable"}
+
+
+def test_capability_validation_stop_and_steer(tmp_path: Path) -> None:
+    bridge = FakeBridge()
+    with (
+        TestClient(
+            create_app(
+                lambda: bridge, project=tmp_path, database=tmp_path / "chat.sqlite3"
+            )
+        ) as client,
+        client.websocket_connect("/ws/chat") as ws,
+    ):
+        assert ws.receive_json() == {"type": "ready"}
+        ws.send_json({"type": "list_capabilities"})
+        capabilities = ws.receive_json()
+        assert capabilities["type"] == "capabilities"
+        assert capabilities["models"][0]["id"] == "first"
+        ws.send_json({"type": "steer_turn", "text": "too early"})
+        assert ws.receive_json() == {"type": "error", "code": "no_active_turn"}
+        ws.send_json({"type": "submit_prompt", "text": "hello", "model_id": "missing"})
+        assert ws.receive_json() == {"type": "error", "code": "model_unavailable"}
+        assert ws.receive_json()["type"] == "capabilities"
+        ws.send_json(
+            {
+                "type": "submit_prompt",
+                "text": "hello",
+                "model_id": "first",
+                "reasoning_effort": "wrong",
+            }
+        )
+        assert ws.receive_json() == {"type": "error", "code": "reasoning_unavailable"}
+        assert ws.receive_json()["type"] == "capabilities"
+        ws.send_json(
+            {
+                "type": "submit_prompt",
+                "text": "hello",
+                "model_id": "first",
+                "reasoning_effort": "high",
+            }
+        )
+        assert ws.receive_json()["type"] == "conversation_selected"
+        assert ws.receive_json() == {"type": "turn_started"}
+        assert bridge.options["model"] == "runtime-first"
+        assert bridge.options["effort"] == "high"
+        ws.send_json({"type": "steer_turn", "text": "change direction"})
+        assert ws.receive_json() == {
+            "type": "steer_accepted",
+            "text": "change direction",
+        }
+        assert bridge.steered == ["change direction"]
+        ws.send_json({"type": "stop_turn"})
+        assert ws.receive_json() == {"type": "agent_status", "status": "stopping"}
+        assert bridge.interrupted == [("thread-1", "turn-1")]
+        bridge.events.put_nowait(TurnCompleted("thread-1", "turn-1", "interrupted"))
+        assert ws.receive_json() == {"type": "turn_completed", "status": "interrupted"}
+
+
+def test_experimental_mode_hidden_without_opt_in(tmp_path: Path) -> None:
+    bridge = FakeBridge()
+    with (
+        TestClient(
+            create_app(
+                lambda: bridge, project=tmp_path, database=tmp_path / "chat.sqlite3"
+            )
+        ) as client,
+        client.websocket_connect("/ws/chat") as ws,
+    ):
+        ws.receive_json()
+        ws.send_json(
+            {"type": "submit_prompt", "text": "hello", "collaboration_mode": "plan"}
+        )
+        assert ws.receive_json() == {
+            "type": "error",
+            "code": "collaboration_unavailable",
+        }
+
+
+def test_experimental_mode_requires_runtime_discovery(tmp_path: Path) -> None:
+    bridge = FakeBridge()
+    bridge.modes = (CollaborationCapability("Plan", "plan", None, "medium"),)
+    with (
+        TestClient(
+            create_app(
+                lambda: bridge,
+                project=tmp_path,
+                database=tmp_path / "chat.sqlite3",
+                experimental_features=True,
+            )
+        ) as client,
+        client.websocket_connect("/ws/chat") as ws,
+    ):
+        ws.receive_json()
+        ws.send_json({"type": "list_capabilities"})
+        assert ws.receive_json()["collaboration_modes"][0]["mode"] == "plan"
+        ws.send_json(
+            {
+                "type": "submit_prompt",
+                "text": "plan this",
+                "model_id": "first",
+                "collaboration_mode": "plan",
+            }
+        )
+        assert ws.receive_json()["type"] == "conversation_selected"
+        assert ws.receive_json() == {"type": "turn_started"}
+        assert bridge.options["collaboration_mode"] == "plan"
+
+
+def test_normal_chat_survives_missing_experimental_modes(tmp_path: Path) -> None:
+    bridge = FakeBridge()
+    with (
+        TestClient(
+            create_app(
+                lambda: bridge,
+                project=tmp_path,
+                database=tmp_path / "chat.sqlite3",
+                experimental_features=True,
+            )
+        ) as client,
+        client.websocket_connect("/ws/chat") as ws,
+    ):
+        ws.receive_json()
+        ws.send_json({"type": "list_capabilities"})
+        assert ws.receive_json()["collaboration_modes"] == []
+        ws.send_json({"type": "submit_prompt", "text": "hello", "model_id": "first"})
+        assert ws.receive_json()["type"] == "conversation_selected"
+        assert ws.receive_json() == {"type": "turn_started"}

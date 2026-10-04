@@ -56,3 +56,24 @@ process restart. Experimental pagination methods also worked with opt-in, but ar
 needed for this small UI. See [protocol research](poc/RC-003-thread-history-research.md)
 for current upstream caveats. Long conversations may eventually need native
 pagination; there is no SQLite transcript cache.
+
+## Runtime controls (RC-005)
+
+`CodexBridge.list_models()` reads every page of `model/list` and exposes visible
+models with stable IDs, wire model names, per-model reasoning choices, and the
+runtime default. The browser requests normalized capabilities over `/ws/chat` on
+connection or with Refresh models. The backend refreshes the model catalog before
+each new turn and rejects unavailable model or reasoning selections. The browser
+stores the selected model and effort locally and falls back to the runtime default
+when a refreshed catalog removes either value.
+
+`submit_prompt` starts a new turn. During a confirmed active turn, `steer_turn`
+adds text to that turn through `turn/steer`, while `stop_turn` requests
+`turn/interrupt` and waits for `turn/completed`. The browser enables Stop and Steer
+only after `turn_started` and disables both while a stop request is pending.
+
+Collaboration modes require `RC_EXPERIMENTAL_FEATURES=1`. Without that explicit
+setting, the bridge does not opt into the experimental Codex protocol or query
+`collaborationMode/list`. With it, the UI shows only modes returned by the runtime.
+Missing or rejected experimental discovery produces an empty mode list and normal
+chat continues. See [capability research](poc/RC-005-capabilities-research.md).

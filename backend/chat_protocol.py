@@ -10,6 +10,25 @@ class SubmitPrompt(BaseModel):
 
     type: Literal["submit_prompt"]
     text: StrictStr = Field(min_length=1, max_length=10000)
+    model_id: StrictStr | None = None
+    reasoning_effort: StrictStr | None = None
+    collaboration_mode: StrictStr | None = None
+
+
+class ListCapabilities(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["list_capabilities"]
+
+
+class StopTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["stop_turn"]
+
+
+class SteerTurn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["steer_turn"]
+    text: StrictStr = Field(min_length=1, max_length=10000)
 
 
 class NewConversation(BaseModel):
@@ -36,6 +55,17 @@ class TurnStarted(BaseModel):
     type: Literal["turn_started"] = "turn_started"
 
 
+class Capabilities(BaseModel):
+    type: Literal["capabilities"] = "capabilities"
+    models: list[dict[str, object]]
+    collaboration_modes: list[dict[str, object]]
+
+
+class SteerAccepted(BaseModel):
+    type: Literal["steer_accepted"] = "steer_accepted"
+    text: str
+
+
 class AssistantDelta(BaseModel):
     type: Literal["assistant_delta"] = "assistant_delta"
     text: str
@@ -60,6 +90,11 @@ class ChatError(BaseModel):
         "codex_unavailable",
         "conversation_not_found",
         "thread_unavailable",
+        "model_unavailable",
+        "reasoning_unavailable",
+        "collaboration_unavailable",
+        "no_active_turn",
+        "steer_failed",
     ]
 
 
@@ -74,10 +109,20 @@ class ConversationSelected(BaseModel):
     messages: list[dict[str, str]]
 
 
-ClientMessage = SubmitPrompt | NewConversation | ListConversations | SelectConversation
+ClientMessage = (
+    SubmitPrompt
+    | NewConversation
+    | ListConversations
+    | SelectConversation
+    | ListCapabilities
+    | StopTurn
+    | SteerTurn
+)
 ServerEvent = (
     Ready
     | TurnStarted
+    | Capabilities
+    | SteerAccepted
     | AssistantDelta
     | AgentStatus
     | TurnFinished

@@ -69,6 +69,24 @@ class ApprovalDeclined:
     kind: str
 
 
+@dataclass(frozen=True)
+class ModelCapability:
+    id: str
+    model: str
+    display_name: str
+    reasoning_efforts: tuple[str, ...]
+    default_reasoning_effort: str | None
+    is_default: bool
+
+
+@dataclass(frozen=True)
+class CollaborationCapability:
+    name: str
+    mode: str
+    model: str | None
+    reasoning_effort: str | None
+
+
 BridgeEvent = AgentMessageDelta | TurnCompleted | ThreadStatusChanged | ApprovalDeclined
 _APPROVAL_METHODS = {
     "item/commandExecution/requestApproval": "command",
@@ -85,12 +103,17 @@ class CodexBridge:
     """
 
     def __init__(
-        self, *, command: tuple[str, ...] | None = None, request_timeout: float = 60.0
+        self,
+        *,
+        command: tuple[str, ...] | None = None,
+        request_timeout: float = 60.0,
+        experimental_features: bool = False,
     ):
         self._client = AppServerClient(command, request_timeout=request_timeout)
         self._events: asyncio.Queue[BridgeEvent | BridgeError] = asyncio.Queue()
         self._pump: asyncio.Task[None] | None = None
         self._ready = False
+        self._experimental_features = experimental_features
 
     @property
     def ready(self) -> bool:
@@ -107,6 +130,7 @@ class CodexBridge:
             await self._client.initialize(
                 client_name="remote_codex_chat",
                 client_title="Remote Codex Chat",
+                experimental_api=self._experimental_features,
             )
         except AppServerError as exc:
             await self._client.close()
@@ -172,12 +196,139 @@ class CodexBridge:
                     messages.append({"role": "assistant", "text": item["text"]})
         return messages
 
-    async def start_turn(self, thread_id: str, prompt: str) -> str:
+    async def list_models(self) -> tuple[ModelCapability, ...]:
+        models: list[ModelCapability] = []
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        while True:
+            result = await self._request(
+                "model/list", {"cursor": cursor} if cursor else {}
+            )
+            if not isinstance(result, dict) or not isinstance(result.get("data"), list):
+                raise MalformedProtocol("Missing model catalog data")
+            for item in result["data"]:
+                if not isinstance(item, dict):
+                    raise MalformedProtocol("Malformed model catalog entry")
+                if item.get("hidden") is True:
+                    continue
+                model_id, model_name, display_name = (
+                    item.get("id"),
+                    item.get("model"),
+                    item.get("displayName"),
+                )
+                efforts = item.get("supportedReasoningEfforts")
+                if not all(
+                    isinstance(v, str) and v
+                    for v in (model_id, model_name, display_name)
+                ) or not isinstance(efforts, list):
+                    raise MalformedProtocol("Malformed model catalog entry")
+                values: list[str] = []
+                for effort in efforts:
+                    value = (
+                        effort.get("reasoningEffort")
+                        if isinstance(effort, dict)
+                        else None
+                    )
+                    if not isinstance(value, str) or not value:
+                        raise MalformedProtocol("Malformed reasoning effort")
+                    if value not in values:
+                        values.append(value)
+                default = item.get("defaultReasoningEffort")
+                if default is not None and not isinstance(default, str):
+                    raise MalformedProtocol("Malformed default reasoning effort")
+                models.append(
+                    ModelCapability(
+                        model_id,
+                        model_name,
+                        display_name,
+                        tuple(values),
+                        default if default in values else None,
+                        item.get("isDefault") is True,
+                    )
+                )
+            cursor = result.get("nextCursor")
+            if cursor is None:
+                return tuple(models)
+            if not isinstance(cursor, str) or not cursor or cursor in seen_cursors:
+                raise MalformedProtocol("Invalid model catalog cursor")
+            seen_cursors.add(cursor)
+
+    async def list_collaboration_modes(self) -> tuple[CollaborationCapability, ...]:
+        if not self._experimental_features:
+            return ()
+        try:
+            result = await self._request("collaborationMode/list", {})
+        except OperationFailed:
+            return ()
+        if not isinstance(result, dict) or not isinstance(result.get("data"), list):
+            return ()
+        modes = []
+        for item in result["data"]:
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("name"), str)
+                or not isinstance(item.get("mode"), str)
+            ):
+                continue
+            model = item.get("model")
+            effort = item.get("reasoning_effort")
+            modes.append(
+                CollaborationCapability(
+                    item["name"],
+                    item["mode"],
+                    model if isinstance(model, str) else None,
+                    effort if isinstance(effort, str) else None,
+                )
+            )
+        return tuple(modes)
+
+    async def start_turn(
+        self,
+        thread_id: str,
+        prompt: str,
+        *,
+        model: str | None = None,
+        effort: str | None = None,
+        collaboration_mode: str | None = None,
+    ) -> str:
+        params: dict[str, Any] = {
+            "threadId": thread_id,
+            "input": [{"type": "text", "text": prompt}],
+        }
+        if model is not None:
+            params["model"] = model
+        if effort is not None:
+            params["effort"] = effort
+        if collaboration_mode is not None:
+            if not self._experimental_features:
+                raise OperationFailed("Experimental collaboration is disabled")
+            if model is None:
+                raise OperationFailed("Collaboration mode requires a selected model")
+            params["collaborationMode"] = {
+                "mode": collaboration_mode,
+                "settings": {
+                    "model": model,
+                    "reasoning_effort": effort,
+                    "developer_instructions": None,
+                },
+            }
         result = await self._request(
             "turn/start",
-            {"threadId": thread_id, "input": [{"type": "text", "text": prompt}]},
+            params,
         )
         return self._nested_id(result, "turn")
+
+    async def steer_turn(self, thread_id: str, turn_id: str, prompt: str) -> None:
+        result = await self._request(
+            "turn/steer",
+            {
+                "threadId": thread_id,
+                "expectedTurnId": turn_id,
+                "input": [{"type": "text", "text": prompt}],
+            },
+        )
+        if not isinstance(result, dict) or result.get("turnId") != turn_id:
+            raise MalformedProtocol("Unexpected steered turn ID")
 
     async def interrupt_turn(self, thread_id: str, turn_id: str) -> None:
         await self._request(
