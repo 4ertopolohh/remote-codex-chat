@@ -35,6 +35,13 @@ async def send_event(ws: WebSocket, event: ServerEvent) -> None:
     await ws.send_json(event.model_dump())
 
 
+def parse_client_message(raw: object) -> SubmitPrompt:
+    message = SubmitPrompt.model_validate(raw)
+    if not message.text.strip():
+        raise ValueError("Empty prompt")
+    return message
+
+
 def create_app(
     bridge_factory: Callable[[], CodexBridge] = CodexBridge,
     *,
@@ -85,9 +92,7 @@ def create_app(
             while True:
                 try:
                     raw = await ws.receive_json()
-                    message = SubmitPrompt.model_validate(raw)
-                    if not message.text.strip():
-                        raise ValueError("Empty prompt")
+                    message = parse_client_message(raw)
                 except (ValidationError, ValueError, KeyError, TypeError):
                     await send_event(ws, ChatError(code="invalid_message"))
                     continue
@@ -107,10 +112,10 @@ def create_app(
                         await asyncio.gather(*pending, return_exceptions=True)
                         if receive_task in done:
                             try:
-                                receive_task.result()
+                                parse_client_message(receive_task.result())
                             except WebSocketDisconnect:
                                 raise
-                            except (ValueError, KeyError, TypeError):
+                            except (ValidationError, ValueError, KeyError, TypeError):
                                 await send_event(ws, ChatError(code="invalid_message"))
                             else:
                                 await send_event(ws, ChatError(code="turn_in_progress"))

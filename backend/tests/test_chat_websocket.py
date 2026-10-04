@@ -75,6 +75,10 @@ def test_rejects_malformed_messages_and_recovers(tmp_path: Path) -> None:
         assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
         ws.send_json({"type": "submit_prompt", "text": "valid"})
         assert ws.receive_json() == {"type": "turn_started"}
+        ws.send_json({"type": "rpc", "method": "thread/start"})
+        assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
+        ws.send_json({"type": "submit_prompt", "text": "another"})
+        assert ws.receive_json() == {"type": "error", "code": "turn_in_progress"}
         bridge.events.put_nowait(TurnCompleted("thread-1", "turn-1", "failed"))
         assert ws.receive_json() == {"type": "turn_completed", "status": "failed"}
 
