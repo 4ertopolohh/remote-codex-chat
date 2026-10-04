@@ -76,7 +76,7 @@ class RequestPending:
     thread_id: str
     turn_id: str
     kind: str
-    details: dict[str, Any]
+    details: dict[str, object]
 
 
 @dataclass(frozen=True)
@@ -446,7 +446,7 @@ class CodexBridge:
             await self._resolve(pending_id, result, "cancelled")
 
     async def _resolve(
-        self, pending_id: str, result: dict[str, Any] | None, status: str
+        self, pending_id: str, result: dict[str, object] | None, status: str
     ) -> None:
         pending = self._pending_requests.pop(pending_id, None)
         if pending is None:
@@ -509,7 +509,7 @@ class CodexBridge:
             if kind == "command"
             else ("reason", "grantRoot")
         )
-        details: dict[str, Any] = {
+        details: dict[str, object] = {
             key: params[key] for key in fields if isinstance(params.get(key), str)
         }
         question_ids: tuple[str, ...] = ()

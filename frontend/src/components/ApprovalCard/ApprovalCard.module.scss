@@ -2,6 +2,7 @@
 .card h2, .card p { margin: 0; }
 .card code { overflow-wrap: anywhere; }
 .question { display: grid; gap: .35rem; }
+.acknowledge { display: flex; gap: .5rem; align-items: flex-start; }
 .question input, .question select { width: 100%; padding: .5rem; font: inherit; }
 .actions { display: flex; gap: .5rem; justify-content: flex-end; }
 .card button { padding: .5rem 1.25rem; }

@@ -56,7 +56,7 @@ test('approval card sends only a pending decision and shows its outcome', () => 
   expect(socket.commands()).toContainEqual({ type: 'answer_approval', id: 'opaque-1', decision: 'accept' })
   expect(screen.getByRole('button', { name: 'Approve' }).hasAttribute('disabled')).toBe(true)
   socket.emit({ type: 'request_outcome', id: 'opaque-1', status: 'completed' })
-  expect(screen.getByText('Request completed.')).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Request completed' })).toBeTruthy()
 })
 
 test('user input card returns the selected answer shape', () => {
@@ -68,6 +68,19 @@ test('user input card returns the selected answer shape', () => {
   fireEvent.change(screen.getByLabelText('Choice: Continue?'), { target: { value: 'Yes' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send answer' }))
   expect(socket.commands()).toContainEqual({ type: 'answer_user_input', id: 'opaque-2', answers: { choice: ['Yes'] } })
+})
+
+test('file approval without details requires explicit acknowledgement', () => {
+  render(<App />)
+  const socket = FakeSocket.instances[0]
+  socket.emit({ type: 'ready' })
+  socket.emit({ type: 'pending_request', id: 'opaque-3', kind: 'file_change', details: {} })
+  const approve = screen.getByRole('button', { name: 'Approve' })
+  expect(approve.hasAttribute('disabled')).toBe(true)
+  fireEvent.click(screen.getByRole('checkbox'))
+  expect(approve.hasAttribute('disabled')).toBe(false)
+  fireEvent.click(approve)
+  expect(socket.commands()).toContainEqual({ type: 'answer_approval', id: 'opaque-3', decision: 'accept' })
 })
 
 test('missing persisted model falls back to runtime default', () => {

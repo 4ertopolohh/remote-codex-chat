@@ -14,6 +14,8 @@ The `CodexBridge` module owns `pending → resolved | expired | cancelled`. Regi
 
 The public `CodexBridge.next_event`/`answer_request` interface and `/ws/chat` are the agreed test seams. Reconnect starts with no prior request authority; the existing disconnect policy interrupts the turn. The installed stable schema includes the experimental user-input type, but normal application operation reports it as unsupported until explicitly opted in. Real user-input generation depends on a safely triggerable experimental turn and is not inferred from schema presence.
 
+`reason` and `grantRoot` are optional on file approvals. When both are absent, the browser explicitly warns that Codex did not provide file paths or a description and requires acknowledgement before enabling Approve. The request remains answerable with `decline` at any time. A command request without `command` cannot be approved from the browser because its action cannot be shown.
+
 ## Real disposable-repo check
 
 On 2026-10-05, `python -m poc.rc006_real_approval_check` ran against real `codex-cli 0.160.0`. The app-server emitted one `item/commandExecution/requestApproval` for PowerShell `echo RC006_OK`. The broker answered `accept`, the turn completed, and `git status --short` in the temporary repo was empty. The script accepts only that exact command and declines any other request. The temporary repo was deleted when the check finished.

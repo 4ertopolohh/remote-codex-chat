@@ -330,13 +330,17 @@ def create_app(
                     while turn_id is not None:
                         receive_task = asyncio.create_task(ws.receive_json())
                         event_task = asyncio.create_task(bridge.next_event())
-                        done, pending = await asyncio.wait(
-                            {receive_task, event_task},
-                            return_when=asyncio.FIRST_COMPLETED,
-                        )
-                        for task in pending:
-                            task.cancel()
-                        await asyncio.gather(*pending, return_exceptions=True)
+                        tasks = {receive_task, event_task}
+                        try:
+                            done, _ = await asyncio.wait(
+                                tasks,
+                                return_when=asyncio.FIRST_COMPLETED,
+                            )
+                        finally:
+                            for task in tasks:
+                                if not task.done():
+                                    task.cancel()
+                            await asyncio.gather(*tasks, return_exceptions=True)
                         if event_task in done:
                             event = event_task.result()
                             if isinstance(event, AgentMessageDelta) and (
