@@ -24,6 +24,9 @@ backend/data/*.sqlite3
 backend/data/uploads/
 backend/data/tmp/
 
+# Local analysis artifacts
+repomix-output.xml
+
 # OS
 Thumbs.db
 .DS_Store
