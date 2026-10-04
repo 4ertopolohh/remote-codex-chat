@@ -12,7 +12,6 @@ from .app_server_client import (
     AppServerError,
     AppServerRpcError,
     IncomingEvent,
-    ServerNotification,
     ServerRequest,
 )
 
