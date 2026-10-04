@@ -122,7 +122,7 @@ async def _run(args: argparse.Namespace) -> int:
             if args.command == "resume":
                 resume_result = await client.request(
                     "thread/resume",
-                    {"threadId": args.thread_id},
+                    {"threadId": args.thread_id, "excludeTurns": True},
                 )
                 thread_id = _extract_thread_id(resume_result)
                 print(f"THREAD_ID={thread_id}")

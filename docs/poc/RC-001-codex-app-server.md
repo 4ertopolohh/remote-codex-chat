@@ -161,3 +161,28 @@ GO criterion: `account/rateLimits/read` returns a structured response or a clear
 **NO-GO** if the installed Codex version or current ChatGPT authentication cannot provide the core thread/turn/streaming flow. Do not start the full frontend before resolving that failure.
 
 Record the tested `codex --version`, the commands used, and any protocol differences discovered from the installed version.
+
+## Target Windows validation — 2026-10-04
+
+**Result: GO for RC-001.** The installed runtime was `codex-cli 0.160.0` on Windows 10.0.19045. The PoC connected over local stdio with existing ChatGPT `plus` authentication. No API key or public app-server listener was used. This validates the integration PoC; it does not validate the later HTTPS tunnel, browser, or FastAPI bridge.
+
+The working branch was `feature/rc-001-codex-app-server-poc`, based on `main`. Before this validation, issue #1 and PR #2 already recorded real initialization, model discovery, thread start, streaming, status, and completion. This run repeated those checks and completed the remaining checks.
+
+From `backend/`, `python -m uv sync --locked`, `python -m uv run pytest`, and `python -m uv run ruff check .` passed (1 test, no Ruff findings). `uv` was installed into the Windows user Python environment because it was initially absent from `PATH`; `python -m uv` invokes the same tool.
+
+All turn and file operations used a new disposable repository at `%TEMP%\remote-codex-chat-rc001-6dce2211`, initialized with a committed `seed.txt` containing `seed`. The relevant invocations used `python -m uv run python -m poc.codex_app_server_poc`:
+
+| Check | Invocation / observed evidence |
+| --- | --- |
+| Initialize | Every invocation returned `Initialized app-server: codex_vscode/0.160.0 ...` after the `initialize`/`initialized` exchange. |
+| Model catalog | `models` returned a nonempty `data` array, including `gpt-6.1-sol`. |
+| Persistent thread and turn | `chat --project <disposable-repo> --prompt "Read seed.txt and reply with exactly REMOTE_CODEX_CHAT_POC_OK. Do not edit files."` returned thread `01a107ab-b791-77d2-817c-8a731716e8a3` and a turn ID. `item/agentMessage/delta` streamed the marker, `thread/status/changed` reported active then idle, and `turn/completed` reported `completed`. |
+| File modification | `chat --project <disposable-repo> --approval-policy untrusted --approval-mode accept --prompt "Create proof.txt ... containing exactly RC001_OK, with no newline"` completed. `proof.txt` contained exactly eight bytes (`52433030315F4F4B`); `git status --short` showed only `?? proof.txt`, and `git diff --no-index /dev/null proof.txt` showed the new file with no newline. |
+| Approval request and response | During that same real turn the server emitted six `item/commandExecution/requestApproval` requests and `thread/status/changed` with `waitingOnApproval`. The PoC returned `decision: accept` for each, after which the turn completed and the file content was verified. No approval event was simulated. |
+| Interrupt | `chat --project <disposable-repo> --interrupt-after 2 --prompt "Think carefully through a harmless 20-step plan ... Do not execute commands or edit files."` invoked `turn/interrupt`; `turn/completed` reported `interrupted` after 2028 ms. Exit code 2 is the PoC's documented non-completed-turn result. |
+| Resume after process restart | A separate `resume --thread-id 01a107ab-b791-77d2-817c-8a731716e8a3` process returned the same thread ID and answered `seed`. Another new process was asked for the earlier response marker without reading files and replied `REMOTE_CODEX_CHAT_POC_OK`; both turns completed. |
+| Explicit rate-limit read | `limits` invoked `account/rateLimits/read` and returned structured `rateLimits`, `rateLimitsByLimitId`, and `ordinaryUsageAllowed: true`. This is an RPC result, not merely a notification. |
+
+The runtime initially emitted `deprecationNotice` on `thread/resume`: full-history hydration for paginated threads is deprecated. The PoC now sends `excludeTurns: true`; a repeat resume completed with `RESUME_OK` and no deprecation notice. A future history UI should use `thread/turns/list` and `thread/items/list`; see [protocol notes](RC-001-protocol-notes.md). The prior upstream Responses WebSocket HTTP 403 also occurred in a new turn; Codex retried over HTTPS and completed. The 403 remains an environment/network observation for the later remote-access phase.
+
+All RC-001 acceptance criteria are met. RC-002 may start after normal review/merge decisions for this draft PR. The PoC does not establish production bridge behavior or resolve the upstream WebSocket 403.
