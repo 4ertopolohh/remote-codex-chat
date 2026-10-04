@@ -12,6 +12,8 @@ from ._transport import (
     AppServerError,
     AppServerProtocolError,
     AppServerRpcError,
+    AppServerTerminatedError,
+    AppServerUnavailableError,
     ServerNotification,
     ServerRequest,
 )
@@ -108,7 +110,7 @@ class CodexBridge:
             )
         except AppServerError as exc:
             await self._client.close()
-            if "Cannot start" in str(exc):
+            if isinstance(exc, AppServerUnavailableError):
                 raise CodexUnavailable(str(exc)) from exc
             raise InitializationFailed(str(exc)) from exc
         self._ready = True
@@ -196,6 +198,7 @@ class CodexBridge:
         except AppServerError as exc:
             self._ready = False
             self._events.put_nowait(self._translate(exc))
+            await self._client.close()
 
     @staticmethod
     def _string(params: dict[str, Any], key: str) -> str | None:
@@ -244,6 +247,6 @@ class CodexBridge:
             return MalformedProtocol(str(exc))
         if isinstance(exc, AppServerRpcError):
             return OperationFailed(str(exc))
-        if "exited" in str(exc) or "connection" in str(exc):
+        if isinstance(exc, AppServerTerminatedError):
             return ServerTerminated(str(exc))
         return OperationFailed(str(exc))

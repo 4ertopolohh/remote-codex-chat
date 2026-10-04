@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -140,13 +141,22 @@ sys.stdin.readline()
 
 @pytest.mark.asyncio
 async def test_invalid_json_after_handshake_fails_event_stream(tmp_path: Path) -> None:
+    marker = tmp_path / "child_closed.txt"
     bridge = await bridge_for(
-        tmp_path, HANDSHAKE + "print('{bad json', flush=True)\nsys.stdin.readline()\n"
+        tmp_path,
+        HANDSHAKE
+        + "print('{bad json', flush=True)\nsys.stdin.readline()\n"
+        + f"open({str(marker)!r}, 'w').write('closed')\n",
     )
     try:
         with pytest.raises(MalformedProtocol):
             await bridge.next_event(timeout=2)
         assert not bridge.ready
+        for _ in range(40):
+            if marker.exists():
+                break
+            await asyncio.sleep(0.05)
+        assert marker.read_text() == "closed"
     finally:
         await bridge.close()
 
@@ -157,4 +167,13 @@ async def test_failed_handshake_is_stable_error(tmp_path: Path) -> None:
     server.write_text("raise SystemExit(9)\n", encoding="utf-8")
     bridge = CodexBridge(command=(sys.executable, "-S", str(server)), request_timeout=2)
     with pytest.raises(InitializationFailed):
+        await bridge.start()
+
+
+@pytest.mark.asyncio
+async def test_unlaunchable_executable_is_unavailable(tmp_path: Path) -> None:
+    executable = tmp_path / "not_an_executable.txt"
+    executable.write_text("hello", encoding="utf-8")
+    bridge = CodexBridge(command=(str(executable),), request_timeout=1)
+    with pytest.raises(CodexUnavailable):
         await bridge.start()

@@ -20,6 +20,14 @@ class AppServerProtocolError(AppServerError):
     """Raised when app-server returns malformed JSON or an unexpected envelope."""
 
 
+class AppServerUnavailableError(AppServerError):
+    """Raised when the Codex executable cannot be launched."""
+
+
+class AppServerTerminatedError(AppServerError):
+    """Raised when the app-server exits or loses its stdio connection."""
+
+
 class AppServerRpcError(AppServerError):
     """Raised when app-server returns a JSON-RPC error response."""
 
@@ -117,8 +125,8 @@ class AppServerClient:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-        except FileNotFoundError as exc:
-            raise AppServerError(
+        except OSError as exc:
+            raise AppServerUnavailableError(
                 f"Cannot start {self._command[0]!r}. Ensure Codex CLI is installed and on PATH."
             ) from exc
 
@@ -256,17 +264,17 @@ class AppServerClient:
                 process.kill()
                 await process.wait()
 
-        for task in (self._reader_task, self._stderr_task):
-            if task is not None and not task.done():
+        tasks = [
+            task for task in (self._reader_task, self._stderr_task) if task is not None
+        ]
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*tasks, return_exceptions=True), timeout=1.0
+            )
+        except TimeoutError:
+            for task in tasks:
                 task.cancel()
-        await asyncio.gather(
-            *(
-                task
-                for task in (self._reader_task, self._stderr_task)
-                if task is not None
-            ),
-            return_exceptions=True,
-        )
+            await asyncio.gather(*tasks, return_exceptions=True)
 
         self._fail_pending(
             AppServerError(f"codex app-server exited with code {process.returncode}")
@@ -277,9 +285,11 @@ class AppServerClient:
             raise self._terminal_error
         process = self._process
         if process is None or process.stdin is None:
-            raise AppServerError("codex app-server is not running")
+            raise AppServerTerminatedError("codex app-server is not running")
         if process.returncode is not None:
-            raise AppServerError(self._process_exit_message(process.returncode))
+            raise AppServerTerminatedError(
+                self._process_exit_message(process.returncode)
+            )
 
         payload = json.dumps(message, ensure_ascii=False, separators=(",", ":")).encode(
             "utf-8"
@@ -289,7 +299,7 @@ class AppServerClient:
                 process.stdin.write(payload + b"\n")
                 await process.stdin.drain()
             except (BrokenPipeError, ConnectionResetError) as exc:
-                raise AppServerError(
+                raise AppServerTerminatedError(
                     "Lost stdin connection to codex app-server"
                 ) from exc
 
@@ -328,7 +338,9 @@ class AppServerClient:
                 returncode = process.returncode
                 if returncode is None:
                     returncode = await process.wait()
-                self._fail_all(AppServerError(self._process_exit_message(returncode)))
+                self._fail_all(
+                    AppServerTerminatedError(self._process_exit_message(returncode))
+                )
 
     async def _read_stderr(self) -> None:
         process = self._process
