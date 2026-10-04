@@ -258,6 +258,44 @@ sys.stdin.readline()
 
 
 @pytest.mark.asyncio
+async def test_two_approvals_map_to_their_original_server_requests(
+    tmp_path: Path,
+) -> None:
+    bridge = await bridge_for(
+        tmp_path,
+        HANDSHAKE
+        + """
+send({'method': 'item/commandExecution/requestApproval', 'id': 'command-rpc',
+      'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'command': 'echo hi'}})
+send({'method': 'item/fileChange/requestApproval', 'id': 'file-rpc',
+      'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'reason': 'write proof'}})
+responses = [read(), read()]
+assert {'id': 'file-rpc', 'result': {'decision': 'accept'}} in responses
+assert {'id': 'command-rpc', 'result': {'decision': 'decline'}} in responses
+sys.stdin.readline()
+""",
+    )
+    try:
+        first = await bridge.next_event(timeout=2)
+        second = await bridge.next_event(timeout=2)
+        assert isinstance(first, RequestPending)
+        assert isinstance(second, RequestPending)
+        assert first.id != second.id
+        assert (first.kind, second.kind) == ("command", "file_change")
+        assert await bridge.answer_request(second.id, "accept")
+        assert await bridge.answer_request(first.id, "decline")
+        assert {
+            await bridge.next_event(timeout=2),
+            await bridge.next_event(timeout=2),
+        } == {
+            RequestFinished(first.id, "completed"),
+            RequestFinished(second.id, "completed"),
+        }
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
 async def test_missing_executable_is_stable_error() -> None:
     bridge = CodexBridge(command=("codex-does-not-exist-rc002",), request_timeout=1)
     with pytest.raises(CodexUnavailable):
