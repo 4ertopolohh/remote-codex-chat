@@ -8,6 +8,8 @@ Both approval responses accept `{ "decision": "accept" | "decline" }`; this appl
 
 The experimental user-input request carries `questions` with IDs, text, optional options, `isOther`, and `isSecret`. The response is `{ "answers": { "<questionId>": { "answers": ["<text>"] } } }`. It is exposed only when experimental features are enabled. [Params](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/typescript/v2/ToolRequestUserInputParams.ts), [question](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/typescript/v2/ToolRequestUserInputQuestion.ts), [response](https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/typescript/v2/ToolRequestUserInputResponse.ts).
 
+On user-input timeout or disconnect, the broker returns a JSON-RPC error instead of fabricating an answer. The [official app-server handler](https://github.com/openai/codex/blob/main/codex-rs/app-server/src/bespoke_event_handling.rs) converts such client errors to an empty answer map, so the turn may continue without a user's answer. This is a limitation of the confirmed runtime behavior; disconnect also interrupts the active turn.
+
 ## State machine and test seams
 
 The `CodexBridge` module owns `pending → resolved | expired | cancelled`. Registration creates an unguessable application ID. Answering removes it before writing to app-server, so concurrent and duplicate answers cannot write twice. A deadline expires approvals by sending `decline`; connection loss cancels approvals with `decline`. User input expires/cancels with a JSON-RPC error because an empty answer can misrepresent user intent. Process death clears pending IDs. Terminal status events let the browser distinguish outcomes.

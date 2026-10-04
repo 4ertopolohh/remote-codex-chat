@@ -450,7 +450,7 @@ class CodexBridge:
         try:
             if result is None:
                 await self._client.respond_error(
-                    pending.request_id, code=-32800, message="User input cancelled"
+                    pending.request_id, code=-32603, message="User input unavailable"
                 )
             else:
                 await self._client.respond(pending.request_id, result)

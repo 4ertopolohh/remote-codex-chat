@@ -203,6 +203,35 @@ sys.stdin.readline()
 
 
 @pytest.mark.asyncio
+async def test_user_input_expiry_sends_error_without_fabricating_answer(
+    tmp_path: Path,
+) -> None:
+    bridge = await bridge_for(
+        tmp_path,
+        HANDSHAKE
+        + """
+send({'method': 'item/tool/requestUserInput', 'id': 'question-expire',
+      'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'questions': [
+          {'id': 'choice', 'header': 'Choice', 'question': 'Continue?',
+           'options': None, 'isOther': True, 'isSecret': False}]}})
+assert read() == {'id': 'question-expire', 'error': {'code': -32603, 'message': 'User input unavailable'}}
+sys.stdin.readline()
+""",
+        experimental_features=True,
+        approval_timeout=0.01,
+    )
+    try:
+        pending = await bridge.next_event(timeout=2)
+        assert isinstance(pending, RequestPending)
+        assert await bridge.next_event(timeout=2) == RequestFinished(
+            pending.id, "expired"
+        )
+        assert not await bridge.answer_user_input(pending.id, {"choice": ["Yes"]})
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
 async def test_disconnect_cancellation_declines_original_request(
     tmp_path: Path,
 ) -> None:
