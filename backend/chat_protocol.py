@@ -47,6 +47,20 @@ class SelectConversation(BaseModel):
     id: StrictStr = Field(min_length=1)
 
 
+class AnswerApproval(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["answer_approval"]
+    id: StrictStr = Field(min_length=1)
+    decision: Literal["accept", "decline"]
+
+
+class AnswerUserInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["answer_user_input"]
+    id: StrictStr = Field(min_length=1)
+    answers: dict[str, list[StrictStr]]
+
+
 class Ready(BaseModel):
     type: Literal["ready"] = "ready"
 
@@ -59,6 +73,20 @@ class Capabilities(BaseModel):
     type: Literal["capabilities"] = "capabilities"
     models: list[dict[str, object]]
     collaboration_modes: list[dict[str, object]]
+    user_input: Literal["supported", "unsupported"] = "unsupported"
+
+
+class PendingRequest(BaseModel):
+    type: Literal["pending_request"] = "pending_request"
+    id: str
+    kind: Literal["command", "file_change", "user_input"]
+    details: dict[str, object]
+
+
+class RequestOutcome(BaseModel):
+    type: Literal["request_outcome"] = "request_outcome"
+    id: str
+    status: Literal["completed", "expired", "cancelled"]
 
 
 class SteerAccepted(BaseModel):
@@ -96,6 +124,7 @@ class ChatError(BaseModel):
         "no_active_turn",
         "steer_failed",
         "stop_failed",
+        "request_unavailable",
     ]
 
 
@@ -118,6 +147,8 @@ ClientMessage = (
     | ListCapabilities
     | StopTurn
     | SteerTurn
+    | AnswerApproval
+    | AnswerUserInput
 )
 ServerEvent = (
     Ready
@@ -130,4 +161,6 @@ ServerEvent = (
     | ChatError
     | ConversationList
     | ConversationSelected
+    | PendingRequest
+    | RequestOutcome
 )

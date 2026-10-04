@@ -5,8 +5,8 @@ lifetime. `CodexBridge` owns a local `codex app-server` child process and uses t
 validated RC-001 newline-delimited stdio transport. The PoC CLI imports that same
 transport; there is one framing and JSON-RPC implementation.
 
-The browser connects to `/ws/chat` on FastAPI. Its only command is a validated
-`submit_prompt` with text; the backend selects the project from `RC_PROJECT_PATH`
+The browser connects to `/ws/chat` on FastAPI. It sends validated chat controls and
+answers to pending approval or user-input requests; the backend selects the project from `RC_PROJECT_PATH`
 or the repository root. The application WebSocket reports readiness, turn start,
 assistant text deltas, agent status, and terminal completion or error. It never
 exposes app-server request IDs, RPC envelopes, credentials, or a browser-supplied
@@ -14,13 +14,16 @@ working directory. One browser connection and one active turn are supported.
 
 The bridge interface exposes lifecycle, thread creation/resume, turn start/interrupt,
 and application-level events. Process launch, handshake, request IDs, protocol envelopes,
-server requests, and stderr diagnostics remain inside the module. The future browser
-interface must not expose arbitrary JSON-RPC calls, Codex credentials, or the local
+server requests, and stderr diagnostics remain inside the module. The browser
+interface does not expose arbitrary JSON-RPC calls, Codex credentials, or the local
 app-server listener.
 
-Until an approval user interface exists, bridge-managed command and file approval
-requests receive `decline` and produce an `ApprovalDeclined` event. Unknown server
-requests receive JSON-RPC method-not-found. Unrecognized notifications are ignored;
+Bridge-managed command and file approval requests receive opaque application IDs.
+The browser sees only normalized request details and can answer `accept` or `decline`
+once. Pending approvals time out or cancel on disconnect with `decline`; user-input
+requests use the confirmed experimental answer shape when enabled and otherwise
+receive method-not-found. User input is cancelled with an RPC error, never an invented
+answer. Unknown server requests receive JSON-RPC method-not-found. Unrecognized notifications are ignored;
 known event shapes are validated and malformed data terminates bridge readiness.
 
 `/health` verifies the FastAPI process responds. `/ready` reflects whether the bridge

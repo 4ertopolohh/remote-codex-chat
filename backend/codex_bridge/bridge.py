@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import secrets
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -70,6 +71,31 @@ class ApprovalDeclined:
 
 
 @dataclass(frozen=True)
+class RequestPending:
+    id: str
+    thread_id: str
+    turn_id: str
+    kind: str
+    details: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class RequestFinished:
+    id: str
+    status: str
+
+
+@dataclass
+class _PendingServerRequest:
+    request_id: int | str
+    kind: str
+    question_ids: tuple[str, ...]
+    question_options: dict[str, tuple[str, ...] | None]
+    allow_other: frozenset[str]
+    expiry: asyncio.Task[None]
+
+
+@dataclass(frozen=True)
 class ModelCapability:
     id: str
     model: str
@@ -87,19 +113,26 @@ class CollaborationCapability:
     reasoning_effort: str | None
 
 
-BridgeEvent = AgentMessageDelta | TurnCompleted | ThreadStatusChanged | ApprovalDeclined
+BridgeEvent = (
+    AgentMessageDelta
+    | TurnCompleted
+    | ThreadStatusChanged
+    | ApprovalDeclined
+    | RequestPending
+    | RequestFinished
+)
 _APPROVAL_METHODS = {
     "item/commandExecution/requestApproval": "command",
-    "item/fileChange/requestApproval": "file change",
+    "item/fileChange/requestApproval": "file_change",
 }
+_USER_INPUT_METHOD = "item/tool/requestUserInput"
 
 
 class CodexBridge:
     """Own one local app-server and expose thread/turn behavior.
 
-    Call start before operations, close at application shutdown. Approval requests
-    are declined until a user decision interface exists. Events are consumed in
-    arrival order; unknown notifications are ignored.
+    Call start before operations, close at application shutdown. Server requests
+    are brokered behind opaque application IDs. Events are consumed in arrival order.
     """
 
     def __init__(
@@ -108,12 +141,19 @@ class CodexBridge:
         command: tuple[str, ...] | None = None,
         request_timeout: float = 60.0,
         experimental_features: bool = False,
+        approval_timeout: float = 120.0,
     ):
         self._client = AppServerClient(command, request_timeout=request_timeout)
         self._events: asyncio.Queue[BridgeEvent | BridgeError] = asyncio.Queue()
         self._pump: asyncio.Task[None] | None = None
         self._ready = False
         self._experimental_features = experimental_features
+        self._approval_timeout = approval_timeout
+        self._pending_requests: dict[str, _PendingServerRequest] = {}
+
+    @property
+    def user_input_supported(self) -> bool:
+        return self._experimental_features
 
     @property
     def ready(self) -> bool:
@@ -144,15 +184,21 @@ class CodexBridge:
 
     async def close(self) -> None:
         self._ready = False
+        await self.cancel_pending()
         await self._client.close()
         if self._pump is not None:
             self._pump.cancel()
             await asyncio.gather(self._pump, return_exceptions=True)
 
-    async def start_thread(self, project: Path) -> str:
+    async def start_thread(
+        self, project: Path, *, approval_policy: str | None = None
+    ) -> str:
         if not project.is_dir():
             raise OperationFailed(f"Project directory does not exist: {project}")
-        result = await self._request("thread/start", {"cwd": str(project.resolve())})
+        params = {"cwd": str(project.resolve())}
+        if approval_policy is not None:
+            params["approvalPolicy"] = approval_policy
+        result = await self._request("thread/start", params)
         return self._nested_id(result, "thread")
 
     async def resume_thread(self, thread_id: str) -> str:
@@ -346,6 +392,203 @@ class CodexBridge:
             raise event
         return event
 
+    async def answer_request(self, pending_id: str, decision: str) -> bool:
+        if decision not in {"accept", "decline"}:
+            return False
+        pending = self._pending_requests.get(pending_id)
+        if pending is None or pending.kind == "user_input":
+            return False
+        await self._resolve(pending_id, {"decision": decision}, "completed")
+        return True
+
+    async def answer_user_input(
+        self, pending_id: str, answers: dict[str, list[str]]
+    ) -> bool:
+        pending = self._pending_requests.get(pending_id)
+        if (
+            pending is None
+            or pending.kind != "user_input"
+            or set(answers) != set(pending.question_ids)
+        ):
+            return False
+        if any(
+            not values
+            or any(
+                not isinstance(value, str) or not value.strip() or len(value) > 10000
+                for value in values
+            )
+            for values in answers.values()
+        ):
+            return False
+        for question_id, values in answers.items():
+            options = pending.question_options[question_id]
+            if (
+                options is not None
+                and question_id not in pending.allow_other
+                and any(value not in options for value in values)
+            ):
+                return False
+        await self._resolve(
+            pending_id,
+            {"answers": {key: {"answers": values} for key, values in answers.items()}},
+            "completed",
+        )
+        return True
+
+    async def cancel_pending(self) -> None:
+        for pending_id in tuple(self._pending_requests):
+            await self.cancel_request(pending_id)
+
+    async def cancel_request(self, pending_id: str) -> None:
+        pending = self._pending_requests.get(pending_id)
+        if pending is not None:
+            result = {"decision": "decline"} if pending.kind != "user_input" else None
+            await self._resolve(pending_id, result, "cancelled")
+
+    async def _resolve(
+        self, pending_id: str, result: dict[str, Any] | None, status: str
+    ) -> None:
+        pending = self._pending_requests.pop(pending_id, None)
+        if pending is None:
+            return
+        if pending.expiry is not asyncio.current_task():
+            pending.expiry.cancel()
+        final_status = status
+        try:
+            if result is None:
+                await self._client.respond_error(
+                    pending.request_id, code=-32800, message="User input cancelled"
+                )
+            else:
+                await self._client.respond(pending.request_id, result)
+        except AppServerError as exc:
+            final_status = "cancelled"
+            if self.ready:
+                raise self._translate(exc) from exc
+        finally:
+            self._events.put_nowait(RequestFinished(pending_id, final_status))
+
+    async def _expire(self, pending_id: str) -> None:
+        try:
+            await asyncio.sleep(self._approval_timeout)
+            pending = self._pending_requests.get(pending_id)
+            if pending is not None:
+                result = (
+                    {"decision": "decline"} if pending.kind != "user_input" else None
+                )
+                try:
+                    await self._resolve(pending_id, result, "expired")
+                except BridgeError:
+                    pass
+        except asyncio.CancelledError:
+            pass
+
+    async def _register_server_request(self, incoming: ServerRequest) -> None:
+        kind = _APPROVAL_METHODS.get(incoming.method)
+        if (
+            kind is None
+            and incoming.method == _USER_INPUT_METHOD
+            and self.user_input_supported
+        ):
+            kind = "user_input"
+        if kind is None:
+            await self._client.respond_error(
+                incoming.request_id, code=-32601, message="Unsupported client request"
+            )
+            return
+        params = incoming.params
+        thread_id = self._string(params, "threadId")
+        turn_id = self._string(params, "turnId")
+        if not thread_id or not turn_id:
+            await self._client.respond_error(
+                incoming.request_id, code=-32602, message="Malformed client request"
+            )
+            return
+        fields = (
+            ("command", "cwd", "reason", "kind")
+            if kind == "command"
+            else ("reason", "grantRoot")
+        )
+        details: dict[str, Any] = {
+            key: params[key] for key in fields if isinstance(params.get(key), str)
+        }
+        question_ids: tuple[str, ...] = ()
+        question_options: dict[str, tuple[str, ...] | None] = {}
+        allow_other: set[str] = set()
+        if kind == "user_input":
+            questions = params.get("questions")
+            if not isinstance(questions, list) or not questions or len(questions) > 3:
+                await self._client.respond_error(
+                    incoming.request_id,
+                    code=-32602,
+                    message="Malformed user input request",
+                )
+                return
+            normalized = []
+            for question in questions:
+                if not isinstance(question, dict) or not all(
+                    isinstance(question.get(key), str) and question[key]
+                    for key in ("id", "header", "question")
+                ):
+                    await self._client.respond_error(
+                        incoming.request_id,
+                        code=-32602,
+                        message="Malformed user input request",
+                    )
+                    return
+                options = question.get("options")
+                if options is not None and (
+                    not isinstance(options, list)
+                    or any(
+                        not isinstance(option, dict)
+                        or not isinstance(option.get("label"), str)
+                        or not isinstance(option.get("description"), str)
+                        for option in options
+                    )
+                ):
+                    await self._client.respond_error(
+                        incoming.request_id,
+                        code=-32602,
+                        message="Malformed user input request",
+                    )
+                    return
+                normalized.append(
+                    {
+                        "id": question["id"],
+                        "header": question["header"],
+                        "question": question["question"],
+                        "options": options,
+                        "is_other": question.get("isOther") is True,
+                        "is_secret": question.get("isSecret") is True,
+                    }
+                )
+                question_options[question["id"]] = (
+                    tuple(option["label"] for option in options)
+                    if options is not None
+                    else None
+                )
+                if question.get("isOther") is True:
+                    allow_other.add(question["id"])
+            question_ids = tuple(item["id"] for item in normalized)
+            if len(set(question_ids)) != len(question_ids):
+                await self._client.respond_error(
+                    incoming.request_id, code=-32602, message="Duplicate question ID"
+                )
+                return
+            details = {"questions": normalized}
+        pending_id = secrets.token_urlsafe(24)
+        self._pending_requests[pending_id] = _PendingServerRequest(
+            incoming.request_id,
+            kind,
+            question_ids,
+            question_options,
+            frozenset(allow_other),
+            asyncio.create_task(self._expire(pending_id)),
+        )
+        self._events.put_nowait(
+            RequestPending(pending_id, thread_id, turn_id, kind, details)
+        )
+
     async def _request(self, method: str, params: dict[str, Any]) -> Any:
         if not self.ready:
             raise ServerTerminated("Codex bridge is not ready")
@@ -359,22 +602,7 @@ class CodexBridge:
             while True:
                 incoming = await self._client.next_event()
                 if isinstance(incoming, ServerRequest):
-                    kind = _APPROVAL_METHODS.get(incoming.method)
-                    if kind is None:
-                        await self._client.respond_error(
-                            incoming.request_id,
-                            code=-32601,
-                            message="Unsupported client request",
-                        )
-                    else:
-                        await self._client.respond(
-                            incoming.request_id, {"decision": "decline"}
-                        )
-                        self._events.put_nowait(
-                            ApprovalDeclined(
-                                self._string(incoming.params, "threadId"), kind
-                            )
-                        )
+                    await self._register_server_request(incoming)
                     continue
                 event = self._map_notification(incoming)
                 if event is not None:
@@ -383,6 +611,10 @@ class CodexBridge:
             raise
         except AppServerError as exc:
             self._ready = False
+            for pending_id, pending in tuple(self._pending_requests.items()):
+                pending.expiry.cancel()
+                self._pending_requests.pop(pending_id, None)
+                self._events.put_nowait(RequestFinished(pending_id, "cancelled"))
             self._events.put_nowait(self._translate(exc))
             await self._client.close()
 

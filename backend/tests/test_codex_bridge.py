@@ -8,19 +8,24 @@ import pytest
 
 from codex_bridge import (
     AgentMessageDelta,
-    ApprovalDeclined,
     CodexBridge,
     CodexUnavailable,
     InitializationFailed,
     MalformedProtocol,
     OperationFailed,
+    RequestFinished,
+    RequestPending,
     ServerTerminated,
     TurnCompleted,
 )
 
 
 async def bridge_for(
-    tmp_path: Path, script: str, *, experimental_features: bool = False
+    tmp_path: Path,
+    script: str,
+    *,
+    experimental_features: bool = False,
+    approval_timeout: float = 120.0,
 ) -> CodexBridge:
     server = tmp_path / "fake_server.py"
     server.write_text(script, encoding="utf-8")
@@ -28,6 +33,7 @@ async def bridge_for(
         command=(sys.executable, "-S", str(server)),
         request_timeout=2,
         experimental_features=experimental_features,
+        approval_timeout=approval_timeout,
     )
     await bridge.start()
     return bridge
@@ -59,8 +65,8 @@ assert turn['method'] == 'turn/start'
 assert turn['params']['input'] == [{'type': 'text', 'text': 'hello'}]
 send({'id': turn['id'], 'result': {'turn': {'id': 'turn-1'}}})
 send({'method': 'item/commandExecution/requestApproval', 'id': 'rpc-5',
-      'params': {'threadId': 'thread-1', 'command': 'echo hi'}})
-assert read() == {'id': 'rpc-5', 'result': {'decision': 'decline'}}
+      'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'command': 'echo hi'}})
+assert read() == {'id': 'rpc-5', 'result': {'decision': 'accept'}}
 send({'method': 'item/agentMessage/delta',
       'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'delta': 'hi'}})
 send({'method': 'turn/completed',
@@ -73,15 +79,151 @@ sys.stdin.readline()
     try:
         assert await bridge.start_thread(tmp_path) == "thread-1"
         assert await bridge.start_turn("thread-1", "hello") == "turn-1"
-        assert await bridge.next_event(timeout=2) == ApprovalDeclined(
-            "thread-1", "command"
+        pending = await bridge.next_event(timeout=2)
+        assert isinstance(pending, RequestPending)
+        assert pending.kind == "command"
+        assert pending.details == {"command": "echo hi"}
+        assert not await bridge.answer_request(pending.id, "acceptForSession")
+        assert await bridge.answer_request(pending.id, "accept")
+        assert await bridge.next_event(timeout=2) == RequestFinished(
+            pending.id, "completed"
         )
+        assert not await bridge.answer_request(pending.id, "decline")
         assert await bridge.next_event(timeout=2) == AgentMessageDelta(
             "thread-1", "turn-1", "hi"
         )
         assert await bridge.next_event(timeout=2) == TurnCompleted(
             "thread-1", "turn-1", "completed"
         )
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_approval_expires_with_decline_and_cannot_be_reused(
+    tmp_path: Path,
+) -> None:
+    bridge = await bridge_for(
+        tmp_path,
+        HANDSHAKE
+        + """
+send({'method': 'item/fileChange/requestApproval', 'id': 17,
+      'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'reason': 'write proof'}})
+assert read() == {'id': 17, 'result': {'decision': 'decline'}}
+sys.stdin.readline()
+""",
+        approval_timeout=0.01,
+    )
+    try:
+        pending = await bridge.next_event(timeout=2)
+        assert isinstance(pending, RequestPending)
+        assert pending.kind == "file_change"
+        assert pending.details == {"reason": "write proof"}
+        assert await bridge.next_event(timeout=2) == RequestFinished(
+            pending.id, "expired"
+        )
+        assert not await bridge.answer_request(pending.id, "accept")
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_process_exit_cancels_pending_request(tmp_path: Path) -> None:
+    bridge = await bridge_for(
+        tmp_path,
+        HANDSHAKE
+        + """
+send({'method': 'item/commandExecution/requestApproval', 'id': 'approval-1',
+      'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'command': 'echo hi'}})
+sys.exit(7)
+""",
+    )
+    try:
+        pending = await bridge.next_event(timeout=2)
+        assert isinstance(pending, RequestPending)
+        assert await bridge.next_event(timeout=2) == RequestFinished(
+            pending.id, "cancelled"
+        )
+        with pytest.raises(ServerTerminated):
+            await bridge.next_event(timeout=2)
+        assert not await bridge.answer_request(pending.id, "accept")
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_experimental_user_input_uses_confirmed_answer_shape(
+    tmp_path: Path,
+) -> None:
+    bridge = await bridge_for(
+        tmp_path,
+        HANDSHAKE
+        + """
+send({'method': 'item/tool/requestUserInput', 'id': 'question-1',
+      'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'questions': [
+          {'id': 'choice', 'header': 'Choice', 'question': 'Continue?',
+           'options': [{'label': 'Yes', 'description': 'Proceed'}],
+           'isOther': False, 'isSecret': False}]}})
+assert read() == {'id': 'question-1', 'result': {'answers': {'choice': {'answers': ['Yes']}}}}
+sys.stdin.readline()
+""",
+        experimental_features=True,
+    )
+    try:
+        pending = await bridge.next_event(timeout=2)
+        assert isinstance(pending, RequestPending)
+        assert pending.kind == "user_input"
+        assert not await bridge.answer_user_input(pending.id, {"wrong": ["Yes"]})
+        assert await bridge.answer_user_input(pending.id, {"choice": ["Yes"]})
+        assert await bridge.next_event(timeout=2) == RequestFinished(
+            pending.id, "completed"
+        )
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_stable_mode_rejects_experimental_user_input(tmp_path: Path) -> None:
+    bridge = await bridge_for(
+        tmp_path,
+        HANDSHAKE
+        + """
+send({'method': 'item/tool/requestUserInput', 'id': 'question-1',
+      'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'questions': []}})
+assert read() == {'id': 'question-1', 'error': {'code': -32601, 'message': 'Unsupported client request'}}
+sys.stdin.readline()
+""",
+    )
+    try:
+        assert not bridge.user_input_supported
+        with pytest.raises(OperationFailed):
+            await bridge.next_event(timeout=0.1)
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_disconnect_cancellation_declines_original_request(
+    tmp_path: Path,
+) -> None:
+    bridge = await bridge_for(
+        tmp_path,
+        HANDSHAKE
+        + """
+send({'method': 'item/commandExecution/requestApproval', 'id': 'approval-2',
+      'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'command': 'echo hi'}})
+assert read() == {'id': 'approval-2', 'result': {'decision': 'decline'}}
+sys.stdin.readline()
+""",
+    )
+    try:
+        pending = await bridge.next_event(timeout=2)
+        assert isinstance(pending, RequestPending)
+        await bridge.cancel_pending()
+        assert await bridge.next_event(timeout=2) == RequestFinished(
+            pending.id, "cancelled"
+        )
+        assert not await bridge.answer_request(pending.id, "accept")
     finally:
         await bridge.close()
 

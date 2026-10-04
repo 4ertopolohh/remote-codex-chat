@@ -12,6 +12,8 @@ from codex_bridge import (
     CollaborationCapability,
     ModelCapability,
     OperationFailed,
+    RequestFinished,
+    RequestPending,
     ThreadStatusChanged,
     TurnCompleted,
 )
@@ -32,6 +34,9 @@ class FakeBridge:
         )
         self.modes: tuple[CollaborationCapability, ...] = ()
         self.stop_error = False
+        self.user_input_supported = False
+        self.pending: set[str] = set()
+        self.answers: list[tuple[str, str]] = []
 
     async def start(self) -> None:
         self.ready = True
@@ -67,6 +72,29 @@ class FakeBridge:
             raise OperationFailed("stop rejected")
         self.interrupted.append((thread_id, turn_id))
 
+    async def answer_request(self, pending_id: str, decision: str) -> bool:
+        if pending_id not in self.pending:
+            return False
+        self.pending.remove(pending_id)
+        self.answers.append((pending_id, decision))
+        self.events.put_nowait(RequestFinished(pending_id, "completed"))
+        return True
+
+    async def answer_user_input(
+        self, pending_id: str, answers: dict[str, list[str]]
+    ) -> bool:
+        return False
+
+    async def cancel_pending(self) -> None:
+        for pending_id in tuple(self.pending):
+            await self.cancel_request(pending_id)
+
+    async def cancel_request(self, pending_id: str) -> None:
+        if pending_id in self.pending:
+            self.pending.remove(pending_id)
+            self.answers.append((pending_id, "decline"))
+            self.events.put_nowait(RequestFinished(pending_id, "cancelled"))
+
 
 def test_prompt_streams_domain_events_and_completion(tmp_path: Path) -> None:
     bridge = FakeBridge()
@@ -88,6 +116,99 @@ def test_prompt_streams_domain_events_and_completion(tmp_path: Path) -> None:
         assert ws.receive_json() == {"type": "turn_completed", "status": "completed"}
     assert bridge.project == tmp_path
     assert bridge.prompts == ["hello"]
+
+
+def test_approval_is_visible_once_and_unknown_id_is_rejected(tmp_path: Path) -> None:
+    bridge = FakeBridge()
+    app = create_app(
+        lambda: bridge, project=tmp_path, database=tmp_path / "chat.sqlite3"
+    )
+    with TestClient(app) as client, client.websocket_connect("/ws/chat") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "submit_prompt", "text": "hello"})
+        ws.receive_json()
+        assert ws.receive_json() == {"type": "turn_started"}
+        bridge.pending.add("opaque-1")
+        bridge.events.put_nowait(
+            RequestPending(
+                "opaque-1", "thread-1", "turn-1", "command", {"command": "echo hi"}
+            )
+        )
+        assert ws.receive_json() == {
+            "type": "pending_request",
+            "id": "opaque-1",
+            "kind": "command",
+            "details": {"command": "echo hi"},
+        }
+        ws.send_json(
+            {"type": "answer_approval", "id": "invented", "decision": "accept"}
+        )
+        assert ws.receive_json() == {"type": "error", "code": "request_unavailable"}
+        ws.send_json(
+            {"type": "answer_approval", "id": "opaque-1", "decision": "accept"}
+        )
+        assert ws.receive_json() == {
+            "type": "request_outcome",
+            "id": "opaque-1",
+            "status": "completed",
+        }
+        ws.send_json(
+            {"type": "answer_approval", "id": "opaque-1", "decision": "decline"}
+        )
+        assert ws.receive_json() == {"type": "error", "code": "request_unavailable"}
+        assert bridge.answers == [("opaque-1", "accept")]
+
+
+def test_disconnect_declines_pending_approval(tmp_path: Path) -> None:
+    bridge = FakeBridge()
+    app = create_app(
+        lambda: bridge, project=tmp_path, database=tmp_path / "chat.sqlite3"
+    )
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()
+            ws.send_json({"type": "submit_prompt", "text": "hello"})
+            ws.receive_json()
+            ws.receive_json()
+            bridge.pending.add("opaque-2")
+            bridge.events.put_nowait(
+                RequestPending(
+                    "opaque-2", "thread-1", "turn-1", "file_change", {"reason": "write"}
+                )
+            )
+            assert ws.receive_json()["kind"] == "file_change"
+        for _ in range(100):
+            if bridge.answers:
+                break
+            time.sleep(0.01)
+        assert bridge.answers == [("opaque-2", "decline")]
+
+
+def test_request_from_other_turn_is_cancelled_without_browser_authority(
+    tmp_path: Path,
+) -> None:
+    bridge = FakeBridge()
+    app = create_app(
+        lambda: bridge, project=tmp_path, database=tmp_path / "chat.sqlite3"
+    )
+    with TestClient(app) as client, client.websocket_connect("/ws/chat") as ws:
+        ws.receive_json()
+        ws.send_json({"type": "submit_prompt", "text": "hello"})
+        ws.receive_json()
+        ws.receive_json()
+        bridge.pending.add("stale")
+        bridge.events.put_nowait(
+            RequestPending(
+                "stale", "thread-1", "old-turn", "command", {"command": "echo hi"}
+            )
+        )
+        ws.send_json({"type": "answer_approval", "id": "stale", "decision": "accept"})
+        assert ws.receive_json() == {"type": "error", "code": "request_unavailable"}
+        for _ in range(100):
+            if bridge.answers:
+                break
+            time.sleep(0.01)
+        assert bridge.answers == [("stale", "decline")]
 
 
 def test_rejects_malformed_messages_and_recovers(tmp_path: Path) -> None:

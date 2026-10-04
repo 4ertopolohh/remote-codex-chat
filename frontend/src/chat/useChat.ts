@@ -6,10 +6,14 @@ export type Message = { role: 'user' | 'assistant'; text: string }
 export type ConversationInfo = { id: string; project_id: string; title: string; created_at: string; updated_at: string }
 export type ModelCapability = { id: string; model: string; display_name: string; reasoning_efforts: string[]; default_reasoning_effort: string | null; is_default: boolean }
 export type CollaborationCapability = { name: string; mode: string; model: string | null; reasoning_effort: string | null }
+export type InputQuestion = { id: string; header: string; question: string; options: { label: string; description: string }[] | null; is_other: boolean; is_secret: boolean }
+export type PendingRequest = { id: string; kind: 'command' | 'file_change' | 'user_input'; details: { command?: string; cwd?: string; reason?: string; grantRoot?: string; kind?: string; questions?: InputQuestion[] }; status: 'pending' | 'completed' | 'expired' | 'cancelled' }
 
 type ServerEvent =
   | { type: 'ready' }
-  | { type: 'capabilities'; models: ModelCapability[]; collaboration_modes: CollaborationCapability[] }
+  | { type: 'capabilities'; models: ModelCapability[]; collaboration_modes: CollaborationCapability[]; user_input: 'supported' | 'unsupported' }
+  | { type: 'pending_request'; id: string; kind: PendingRequest['kind']; details: PendingRequest['details'] }
+  | { type: 'request_outcome'; id: string; status: Exclude<PendingRequest['status'], 'pending'> }
   | { type: 'conversation_list'; conversations: ConversationInfo[] }
   | { type: 'conversation_selected'; conversation: ConversationInfo; messages: Message[] }
   | { type: 'turn_started' }
@@ -41,6 +45,8 @@ function parseEvent(data: string): ServerEvent | null {
     if (!value || typeof value !== 'object' || !('type' in value)) return null
     const event = value as Record<string, unknown>
     if (event.type === 'ready' || event.type === 'turn_started') return event as ServerEvent
+    if (event.type === 'pending_request' && typeof event.id === 'string' && ['command', 'file_change', 'user_input'].includes(String(event.kind)) && event.details && typeof event.details === 'object') return event as ServerEvent
+    if (event.type === 'request_outcome' && typeof event.id === 'string' && ['completed', 'expired', 'cancelled'].includes(String(event.status))) return event as ServerEvent
     if (event.type === 'capabilities' && Array.isArray(event.models) && event.models.every(isModel) && Array.isArray(event.collaboration_modes) && event.collaboration_modes.every(isMode)) return event as ServerEvent
     if (event.type === 'steer_accepted' && typeof event.text === 'string') return event as ServerEvent
     if (event.type === 'conversation_list' && Array.isArray(event.conversations) && event.conversations.every(isConversation)) return event as ServerEvent
@@ -85,6 +91,8 @@ export function useChat() {
   const [selectedMode, setSelectedMode] = useState<string | null>(null)
   const [stopPending, setStopPending] = useState(false)
   const [activeTurn, setActiveTurn] = useState(false)
+  const [requests, setRequests] = useState<PendingRequest[]>([])
+  const [userInput, setUserInput] = useState<'supported' | 'unsupported'>('unsupported')
 
   useEffect(() => {
     const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -107,6 +115,7 @@ export function useChat() {
             ws.send(JSON.stringify({ type: 'list_capabilities' }))
             break
           case 'capabilities': {
+            setUserInput(event.user_input)
             setModels(event.models)
             setCollaborationModes(event.collaboration_modes)
             const previous = window.localStorage.getItem(savedModelKey)
@@ -128,6 +137,12 @@ export function useChat() {
             setSelectedMode(previous => event.collaboration_modes.some(mode => mode.mode === previous) ? previous : null)
             break
           }
+          case 'pending_request':
+            setRequests(previous => [...previous, { id: event.id, kind: event.kind, details: event.details, status: 'pending' }])
+            break
+          case 'request_outcome':
+            setRequests(previous => previous.map(request => request.id === event.id ? { ...request, status: event.status } : request))
+            break
           case 'conversation_list': {
             setConversations(event.conversations)
             if (selectedIdRef.current === null && !selectionPendingRef.current) {
@@ -190,6 +205,7 @@ export function useChat() {
       ws.onclose = () => {
         if (disposed || socket.current !== ws) return
         setConnection('disconnected')
+        setRequests(previous => previous.map(request => request.status === 'pending' ? { ...request, status: 'cancelled' } : request))
         setModels([])
         setCollaborationModes([])
         setStopPending(false)
@@ -224,6 +240,7 @@ export function useChat() {
     setTurn('running')
     setActiveTurn(false)
     setError(null)
+    setRequests([])
     return true
   }
 
@@ -297,5 +314,15 @@ export function useChat() {
     socket.current.send(JSON.stringify({ type: 'select_conversation', id }))
   }
 
-  return { connection, turn, activeTurn, agentStatus, messages, conversations, selectedId, selecting, error, models, collaborationModes, selectedModelId, selectedEffort, selectedMode, stopPending, send, steer, stop, selectModel, selectEffort, selectMode, refreshCapabilities, newConversation, selectConversation }
+  function answerApproval(id: string, decision: 'accept' | 'decline'): void {
+    if (socket.current?.readyState !== WebSocket.OPEN || !requests.some(request => request.id === id && request.status === 'pending' && request.kind !== 'user_input')) return
+    socket.current.send(JSON.stringify({ type: 'answer_approval', id, decision }))
+  }
+
+  function answerUserInput(id: string, answers: Record<string, string[]>): void {
+    if (socket.current?.readyState !== WebSocket.OPEN || !requests.some(request => request.id === id && request.status === 'pending' && request.kind === 'user_input')) return
+    socket.current.send(JSON.stringify({ type: 'answer_user_input', id, answers }))
+  }
+
+  return { connection, turn, activeTurn, agentStatus, messages, conversations, selectedId, selecting, error, models, collaborationModes, selectedModelId, selectedEffort, selectedMode, stopPending, requests, userInput, answerApproval, answerUserInput, send, steer, stop, selectModel, selectEffort, selectMode, refreshCapabilities, newConversation, selectConversation }
 }

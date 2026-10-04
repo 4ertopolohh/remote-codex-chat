@@ -15,6 +15,7 @@ class FakeBridge:
         self.threads = threads
         self.resumed: list[str] = []
         self.turns: list[tuple[str, str]] = []
+        self.user_input_supported = False
 
     async def start(self) -> None:
         self.ready = True
@@ -49,6 +50,9 @@ class FakeBridge:
         await asyncio.Future()
 
     async def interrupt_turn(self, thread_id: str, turn_id: str) -> None:
+        pass
+
+    async def cancel_pending(self) -> None:
         pass
 
 

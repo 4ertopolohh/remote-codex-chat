@@ -46,6 +46,30 @@ test('runtime catalog drives model and reasoning, while active turn offers stop 
   expect(screen.getByRole('button', { name: 'Stop' }).hasAttribute('disabled')).toBe(true)
 })
 
+test('approval card sends only a pending decision and shows its outcome', () => {
+  render(<App />)
+  const socket = FakeSocket.instances[0]
+  socket.emit({ type: 'ready' })
+  socket.emit({ type: 'pending_request', id: 'opaque-1', kind: 'command', details: { command: 'echo RC006_OK', cwd: 'C:\\repo' } })
+  expect(screen.getByLabelText('Approval required')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+  expect(socket.commands()).toContainEqual({ type: 'answer_approval', id: 'opaque-1', decision: 'accept' })
+  expect(screen.getByRole('button', { name: 'Approve' }).hasAttribute('disabled')).toBe(true)
+  socket.emit({ type: 'request_outcome', id: 'opaque-1', status: 'completed' })
+  expect(screen.getByText('Request completed.')).toBeTruthy()
+})
+
+test('user input card returns the selected answer shape', () => {
+  render(<App />)
+  const socket = FakeSocket.instances[0]
+  socket.emit({ type: 'ready' })
+  socket.emit({ type: 'pending_request', id: 'opaque-2', kind: 'user_input', details: { questions: [{ id: 'choice', header: 'Choice', question: 'Continue?', options: [{ label: 'Yes', description: 'Proceed' }], is_other: false, is_secret: false }] } })
+  expect(screen.getByLabelText('User input required')).toBeTruthy()
+  fireEvent.change(screen.getByLabelText('Choice: Continue?'), { target: { value: 'Yes' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send answer' }))
+  expect(socket.commands()).toContainEqual({ type: 'answer_user_input', id: 'opaque-2', answers: { choice: ['Yes'] } })
+})
+
 test('missing persisted model falls back to runtime default', () => {
   window.localStorage.setItem('remote-codex-chat.model-id', 'removed')
   render(<App />)

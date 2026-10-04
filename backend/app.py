@@ -15,6 +15,8 @@ from pydantic import TypeAdapter, ValidationError
 
 from chat_protocol import (
     AgentStatus,
+    AnswerApproval,
+    AnswerUserInput,
     AssistantDelta,
     Capabilities,
     ChatError,
@@ -24,7 +26,9 @@ from chat_protocol import (
     ListCapabilities,
     ListConversations,
     NewConversation,
+    PendingRequest,
     Ready,
+    RequestOutcome,
     SelectConversation,
     ServerEvent,
     SteerAccepted,
@@ -42,6 +46,8 @@ from codex_bridge import (
     CollaborationCapability,
     ModelCapability,
     OperationFailed,
+    RequestFinished,
+    RequestPending,
     ThreadStatusChanged,
     TurnCompleted,
 )
@@ -126,6 +132,7 @@ def create_app(
         conversation = None
         turn_id: str | None = None
         stopping = False
+        visible_requests: set[str] = set()
 
         async def discover_models() -> tuple[ModelCapability, ...]:
             try:
@@ -149,6 +156,9 @@ def create_app(
                 Capabilities(
                     models=[asdict(model) for model in models],
                     collaboration_modes=[asdict(mode) for mode in modes],
+                    user_input="supported"
+                    if bridge.user_input_supported
+                    else "unsupported",
                 ),
             )
 
@@ -181,6 +191,9 @@ def create_app(
                         continue
                     if isinstance(message, (StopTurn, SteerTurn)):
                         await send_event(ws, ChatError(code="no_active_turn"))
+                        continue
+                    if isinstance(message, (AnswerApproval, AnswerUserInput)):
+                        await send_event(ws, ChatError(code="request_unavailable"))
                         continue
                     if isinstance(message, NewConversation):
                         thread_id = await bridge.start_thread(configured_project)
@@ -343,10 +356,44 @@ def create_app(
                                 await send_event(
                                     ws, AgentStatus(status="approval_declined")
                                 )
+                            elif isinstance(event, RequestPending):
+                                if (event.thread_id, event.turn_id) == (
+                                    conversation.thread_id,
+                                    turn_id,
+                                ):
+                                    visible_requests.add(event.id)
+                                    await send_event(
+                                        ws,
+                                        PendingRequest(
+                                            id=event.id,
+                                            kind=event.kind,
+                                            details=event.details,
+                                        ),
+                                    )
+                                else:
+                                    await bridge.cancel_request(event.id)
+                            elif isinstance(event, RequestFinished):
+                                if event.id in visible_requests:
+                                    visible_requests.remove(event.id)
+                                    await send_event(
+                                        ws,
+                                        RequestOutcome(
+                                            id=event.id, status=event.status
+                                        ),
+                                    )
                             elif isinstance(event, TurnCompleted) and (
                                 event.thread_id,
                                 event.turn_id,
                             ) == (conversation.thread_id, turn_id):
+                                for pending_id in tuple(visible_requests):
+                                    await bridge.cancel_request(pending_id)
+                                    await send_event(
+                                        ws,
+                                        RequestOutcome(
+                                            id=pending_id, status="cancelled"
+                                        ),
+                                    )
+                                    visible_requests.remove(pending_id)
                                 status = (
                                     event.status
                                     if event.status
@@ -382,6 +429,36 @@ def create_app(
                                     )
                                 elif isinstance(active_message, ListCapabilities):
                                     await send_capabilities()
+                                elif isinstance(
+                                    active_message, (AnswerApproval, AnswerUserInput)
+                                ):
+                                    if active_message.id not in visible_requests:
+                                        await send_event(
+                                            ws, ChatError(code="request_unavailable")
+                                        )
+                                    else:
+                                        try:
+                                            if isinstance(
+                                                active_message, AnswerApproval
+                                            ):
+                                                accepted = await bridge.answer_request(
+                                                    active_message.id,
+                                                    active_message.decision,
+                                                )
+                                            else:
+                                                accepted = (
+                                                    await bridge.answer_user_input(
+                                                        active_message.id,
+                                                        active_message.answers,
+                                                    )
+                                                )
+                                        except BridgeError:
+                                            accepted = False
+                                        if not accepted:
+                                            await send_event(
+                                                ws,
+                                                ChatError(code="request_unavailable"),
+                                            )
                                 elif isinstance(active_message, StopTurn):
                                     if not stopping:
                                         try:
@@ -428,6 +505,10 @@ def create_app(
         except WebSocketDisconnect:
             pass
         finally:
+            try:
+                await bridge.cancel_pending()
+            except BridgeError:
+                pass
             if conversation is not None and turn_id is not None:
                 try:
                     await bridge.interrupt_turn(conversation.thread_id, turn_id)
