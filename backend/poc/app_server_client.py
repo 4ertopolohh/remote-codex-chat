@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 from collections import deque
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Mapping, Sequence
+from types import TracebackType
+from typing import Any, Self
 
 JsonObject = dict[str, Any]
 RequestId = int | str
@@ -87,11 +89,16 @@ class AppServerClient:
     def stderr_tail(self) -> tuple[str, ...]:
         return tuple(self._stderr_tail)
 
-    async def __aenter__(self) -> "AppServerClient":
+    async def __aenter__(self) -> Self:
         await self.start()
         return self
 
-    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         await self.close()
 
     async def start(self) -> None:
@@ -277,30 +284,22 @@ class AppServerClient:
                     continue
 
                 self._route_message(message)
-        except asyncio.CancelledError:
-            raise
         finally:
             if not self._closed:
                 returncode = process.returncode
                 if returncode is None:
-                    try:
-                        returncode = await process.wait()
-                    except Exception:
-                        returncode = None
+                    returncode = await process.wait()
                 self._fail_pending(AppServerError(self._process_exit_message(returncode)))
 
     async def _read_stderr(self) -> None:
         process = self._process
         assert process is not None and process.stderr is not None
 
-        try:
-            while True:
-                raw_line = await process.stderr.readline()
-                if not raw_line:
-                    break
-                self._stderr_tail.append(raw_line.decode("utf-8", "replace").rstrip())
-        except asyncio.CancelledError:
-            raise
+        while True:
+            raw_line = await process.stderr.readline()
+            if not raw_line:
+                break
+            self._stderr_tail.append(raw_line.decode("utf-8", "replace").rstrip())
 
     def _route_message(self, message: JsonObject) -> None:
         if "id" in message and ("result" in message or "error" in message) and "method" not in message:
