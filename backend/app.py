@@ -66,6 +66,11 @@ def parse_client_message(raw: object) -> ClientMessage:
     return message
 
 
+def observe_background_task(task: asyncio.Task[object]) -> None:
+    if not task.cancelled():
+        task.exception()
+
+
 def create_app(
     bridge_factory: Callable[[], CodexBridge] = CodexBridge,
     *,
@@ -132,6 +137,8 @@ def create_app(
         turn_id: str | None = None
         stopping = False
         visible_requests: set[str] = set()
+        receive_task: asyncio.Task[object] | None = None
+        event_task: asyncio.Task[object] | None = None
 
         async def discover_models() -> tuple[ModelCapability, ...]:
             try:
@@ -327,21 +334,18 @@ def create_app(
                     await send_event(ws, TurnStarted())
                     conversation = store.record_prompt(conversation, message.text)
                     while turn_id is not None:
-                        receive_task = asyncio.create_task(ws.receive_json())
-                        event_task = asyncio.create_task(bridge.next_event())
-                        tasks = {receive_task, event_task}
-                        try:
-                            done, _ = await asyncio.wait(
-                                tasks,
-                                return_when=asyncio.FIRST_COMPLETED,
-                            )
-                        finally:
-                            for task in tasks:
-                                if not task.done():
-                                    task.cancel()
-                            await asyncio.gather(*tasks, return_exceptions=True)
+                        if receive_task is None:
+                            receive_task = asyncio.create_task(ws.receive_json())
+                        if event_task is None:
+                            event_task = asyncio.create_task(bridge.next_event())
+                        done, _ = await asyncio.wait(
+                            {receive_task, event_task},
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
                         if event_task in done:
-                            event = event_task.result()
+                            completed_event_task = event_task
+                            event_task = None
+                            event = completed_event_task.result()
                             if isinstance(event, AgentMessageDelta) and (
                                 event.thread_id,
                                 event.turn_id,
@@ -408,9 +412,11 @@ def create_app(
                                 )
                                 turn_id = None
                         if receive_task in done:
+                            completed_receive_task = receive_task
+                            receive_task = None
                             try:
                                 active_message = parse_client_message(
-                                    receive_task.result()
+                                    completed_receive_task.result()
                                 )
                             except WebSocketDisconnect:
                                 raise
@@ -501,6 +507,11 @@ def create_app(
         except WebSocketDisconnect:
             pass
         finally:
+            tasks = [task for task in (receive_task, event_task) if task is not None]
+            for task in tasks:
+                task.add_done_callback(observe_background_task)
+                if not task.done():
+                    task.cancel()
             try:
                 await bridge.cancel_pending()
             except BridgeError:
