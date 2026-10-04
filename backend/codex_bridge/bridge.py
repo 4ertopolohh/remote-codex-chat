@@ -137,6 +137,41 @@ class CodexBridge:
         )
         return self._nested_id(result, "thread")
 
+    async def read_messages(self, thread_id: str) -> list[dict[str, str]]:
+        """Project persisted Codex turns into the chat's text-only presentation."""
+        result = await self._request(
+            "thread/read", {"threadId": thread_id, "includeTurns": True}
+        )
+        thread = result.get("thread") if isinstance(result, dict) else None
+        turns = thread.get("turns") if isinstance(thread, dict) else None
+        if not isinstance(turns, list):
+            raise MalformedProtocol("Missing thread.turns in app-server response")
+        messages: list[dict[str, str]] = []
+        for turn in turns:
+            items = turn.get("items") if isinstance(turn, dict) else None
+            if not isinstance(items, list):
+                raise MalformedProtocol("Missing turn.items in app-server response")
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") == "userMessage":
+                    content = item.get("content")
+                    if isinstance(content, list):
+                        text = "\n".join(
+                            part["text"]
+                            for part in content
+                            if isinstance(part, dict)
+                            and part.get("type") == "text"
+                            and isinstance(part.get("text"), str)
+                        )
+                        if text:
+                            messages.append({"role": "user", "text": text})
+                elif item.get("type") == "agentMessage" and isinstance(
+                    item.get("text"), str
+                ):
+                    messages.append({"role": "assistant", "text": item["text"]})
+        return messages
+
     async def start_turn(self, thread_id: str, prompt: str) -> str:
         result = await self._request(
             "turn/start",

@@ -4,9 +4,10 @@ import asyncio
 import time
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from app import create_app
 from codex_bridge import AgentMessageDelta, ThreadStatusChanged, TurnCompleted
-from fastapi.testclient import TestClient
 
 
 class FakeBridge:
@@ -40,10 +41,13 @@ class FakeBridge:
 
 def test_prompt_streams_domain_events_and_completion(tmp_path: Path) -> None:
     bridge = FakeBridge()
-    app = create_app(lambda: bridge, project=tmp_path)
+    app = create_app(
+        lambda: bridge, project=tmp_path, database=tmp_path / "conversations.sqlite3"
+    )
     with TestClient(app) as client, client.websocket_connect("/ws/chat") as ws:
         assert ws.receive_json() == {"type": "ready"}
         ws.send_json({"type": "submit_prompt", "text": "hello"})
+        assert ws.receive_json()["type"] == "conversation_selected"
         assert ws.receive_json() == {"type": "turn_started"}
         bridge.events.put_nowait(ThreadStatusChanged("thread-1", "active"))
         bridge.events.put_nowait(AgentMessageDelta("thread-1", "turn-1", "hi"))
@@ -60,7 +64,13 @@ def test_prompt_streams_domain_events_and_completion(tmp_path: Path) -> None:
 def test_rejects_malformed_messages_and_recovers(tmp_path: Path) -> None:
     bridge = FakeBridge()
     with (
-        TestClient(create_app(lambda: bridge, project=tmp_path)) as client,
+        TestClient(
+            create_app(
+                lambda: bridge,
+                project=tmp_path,
+                database=tmp_path / "conversations.sqlite3",
+            )
+        ) as client,
         client.websocket_connect("/ws/chat") as ws,
     ):
         assert ws.receive_json() == {"type": "ready"}
@@ -74,6 +84,7 @@ def test_rejects_malformed_messages_and_recovers(tmp_path: Path) -> None:
         ws.send_bytes(b"not a JSON text frame")
         assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
         ws.send_json({"type": "submit_prompt", "text": "valid"})
+        assert ws.receive_json()["type"] == "conversation_selected"
         assert ws.receive_json() == {"type": "turn_started"}
         ws.send_json({"type": "rpc", "method": "thread/start"})
         assert ws.receive_json() == {"type": "error", "code": "invalid_message"}
@@ -85,10 +96,17 @@ def test_rejects_malformed_messages_and_recovers(tmp_path: Path) -> None:
 
 def test_disconnect_interrupts_active_turn(tmp_path: Path) -> None:
     bridge = FakeBridge()
-    with TestClient(create_app(lambda: bridge, project=tmp_path)) as client:
+    with TestClient(
+        create_app(
+            lambda: bridge,
+            project=tmp_path,
+            database=tmp_path / "conversations.sqlite3",
+        )
+    ) as client:
         with client.websocket_connect("/ws/chat") as ws:
             ws.receive_json()
             ws.send_json({"type": "submit_prompt", "text": "hello"})
+            assert ws.receive_json()["type"] == "conversation_selected"
             assert ws.receive_json() == {"type": "turn_started"}
         for _ in range(100):
             if bridge.interrupted:
@@ -99,7 +117,13 @@ def test_disconnect_interrupts_active_turn(tmp_path: Path) -> None:
 
 def test_unavailable_bridge_does_not_report_ready(tmp_path: Path) -> None:
     bridge = FakeBridge()
-    with TestClient(create_app(lambda: bridge, project=tmp_path)) as client:
+    with TestClient(
+        create_app(
+            lambda: bridge,
+            project=tmp_path,
+            database=tmp_path / "conversations.sqlite3",
+        )
+    ) as client:
         bridge.ready = False
         with client.websocket_connect("/ws/chat") as ws:
             assert ws.receive_json() == {"type": "error", "code": "codex_unavailable"}

@@ -12,6 +12,22 @@ class SubmitPrompt(BaseModel):
     text: StrictStr = Field(min_length=1, max_length=10000)
 
 
+class NewConversation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["new_conversation"]
+
+
+class ListConversations(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["list_conversations"]
+
+
+class SelectConversation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["select_conversation"]
+    id: StrictStr = Field(min_length=1)
+
+
 class Ready(BaseModel):
     type: Literal["ready"] = "ready"
 
@@ -38,8 +54,34 @@ class TurnFinished(BaseModel):
 class ChatError(BaseModel):
     type: Literal["error"] = "error"
     code: Literal[
-        "invalid_message", "turn_in_progress", "codex_failure", "codex_unavailable"
+        "invalid_message",
+        "turn_in_progress",
+        "codex_failure",
+        "codex_unavailable",
+        "conversation_not_found",
+        "thread_unavailable",
     ]
 
 
-ServerEvent = Ready | TurnStarted | AssistantDelta | AgentStatus | TurnFinished | ChatError
+class ConversationList(BaseModel):
+    type: Literal["conversation_list"] = "conversation_list"
+    conversations: list[dict[str, str]]
+
+
+class ConversationSelected(BaseModel):
+    type: Literal["conversation_selected"] = "conversation_selected"
+    conversation: dict[str, str]
+    messages: list[dict[str, str]]
+
+
+ClientMessage = SubmitPrompt | NewConversation | ListConversations | SelectConversation
+ServerEvent = (
+    Ready
+    | TurnStarted
+    | AssistantDelta
+    | AgentStatus
+    | TurnFinished
+    | ChatError
+    | ConversationList
+    | ConversationSelected
+)

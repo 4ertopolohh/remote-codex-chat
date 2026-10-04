@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+
 from codex_bridge import (
     AgentMessageDelta,
     ApprovalDeclined,
@@ -134,6 +135,34 @@ sys.stdin.readline()
         await bridge.interrupt_turn("thread-1", "turn-1")
         with pytest.raises(OperationFailed, match="turn rejected"):
             await bridge.start_turn("thread-1", "hello")
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_read_messages_projects_persisted_codex_items(tmp_path: Path) -> None:
+    bridge = await bridge_for(
+        tmp_path,
+        HANDSHAKE
+        + """
+request = read()
+assert request['method'] == 'thread/read'
+assert request['params'] == {'threadId': 'thread-1', 'includeTurns': True}
+send({'id': request['id'], 'result': {'thread': {'turns': [
+    {'items': [
+        {'type': 'userMessage', 'content': [{'type': 'text', 'text': 'hello'}]},
+        {'type': 'agentMessage', 'text': 'hi'},
+        {'type': 'commandExecution', 'command': 'pwd'},
+    ]},
+]}}})
+sys.stdin.readline()
+""",
+    )
+    try:
+        assert await bridge.read_messages("thread-1") == [
+            {"role": "user", "text": "hello"},
+            {"role": "assistant", "text": "hi"},
+        ]
     finally:
         await bridge.close()
 

@@ -31,3 +31,28 @@ terminates or kills it if necessary.
 The transport has an internal test seam at the child process command: tests run a
 fake local subprocess and exercise the public `CodexBridge` interface. Real Codex
 checks are separate and do not run in automated tests.
+
+## Conversation recovery (RC-004)
+
+`backend/conversation_store.py` keeps an application index in SQLite. Schema version 1
+contains only application conversation ID, fixed single-project ID (`default`), Codex
+thread ID, a short title derived from the first prompt, and creation/update timestamps.
+The file defaults to `backend/data/conversations.sqlite3` and can be set with
+`RC_DATABASE_PATH`. The browser sees the application ID and metadata, never a project
+filesystem path. Codex remains the execution and transcript source of truth.
+
+The WebSocket accepts `new_conversation`, `list_conversations`, and
+`select_conversation` alongside `submit_prompt`. Creating a conversation starts an
+independent Codex thread and records its ID. Selecting one calls `thread/resume`
+through `CodexBridge`, then `thread/read` with `includeTurns: true` to rebuild the
+text-only display from persisted user and agent items. Browser local storage remembers
+only the selected application ID; on reload/reconnect it requests the list and selects
+that ID. After a backend restart, the same SQLite file supplies the thread ID.
+Unavailable or deleted Codex threads return `thread_unavailable` and the user can
+start another conversation. Missing application IDs return `conversation_not_found`.
+
+The installed `codex-cli 0.160.0` returned full turns from `thread/read` across a
+process restart. Experimental pagination methods also worked with opt-in, but are not
+needed for this small UI. See [protocol research](poc/RC-003-thread-history-research.md)
+for current upstream caveats. Long conversations may eventually need native
+pagination; there is no SQLite transcript cache.
