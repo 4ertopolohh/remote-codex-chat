@@ -1,0 +1,4 @@
+@media (max-width: 480px) {
+  .controls { flex-wrap: nowrap; overflow-x: auto; padding-bottom: var(--space-1); }
+  .controls > * { flex: none; }
+}

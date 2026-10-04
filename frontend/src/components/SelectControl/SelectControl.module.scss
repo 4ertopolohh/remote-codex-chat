@@ -1,2 +1,2 @@
-.control { display: flex; flex-direction: column; gap: .25rem; }
-.control select { min-height: var(--field-height); padding: var(--space-2) var(--space-4); border: var(--stroke); border-radius: var(--radius-field); background: var(--color-canvas); color: var(--color-ink); font: inherit; }
+.control { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; color: var(--color-muted); font-size: 12px; }
+.control select { min-width: 0; min-height: 44px; max-width: 100%; padding: var(--space-2) var(--space-4); border: var(--stroke); border-radius: var(--radius-field); background: var(--color-canvas); color: var(--color-ink); font-size: 14px; }

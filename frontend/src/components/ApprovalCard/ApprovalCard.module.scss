@@ -1,10 +1,11 @@
-.card { border: var(--stroke); border-radius: var(--radius-dialog); background: var(--color-paper); padding: var(--space-5); display: grid; gap: var(--space-2); }
+.card { min-width: 0; border: var(--stroke); border-radius: var(--radius-dialog); background: var(--color-canvas); padding: var(--space-4); display: grid; gap: var(--space-2); }
 .card h2, .card p { margin: 0; }
-.card code { overflow-wrap: anywhere; }
+.card code { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
 .question { display: grid; gap: .35rem; }
-.acknowledge { display: flex; gap: .5rem; align-items: flex-start; }
+.acknowledge { display: flex; gap: .5rem; align-items: flex-start; font-size: 13px; }
+.acknowledge input { flex: none; width: 22px; height: 22px; margin: 0; }
 .question input, .question select { width: 100%; min-height: var(--field-height); padding: var(--space-2) var(--space-4); border: var(--stroke); border-radius: var(--radius-field); background: var(--color-canvas); color: var(--color-ink); font: inherit; }
-.actions { display: flex; gap: .5rem; justify-content: flex-end; }
-.card button { min-height: var(--control-height); padding: var(--space-2) var(--space-5); border: var(--stroke); border-radius: var(--radius-pill); background: var(--color-accent); color: var(--color-paper); transition: background-color var(--motion-relaxed), transform var(--motion-relaxed); }
+.actions { display: flex; gap: .5rem; justify-content: flex-end; flex-wrap: wrap; }
+.card button { min-height: 44px; padding: var(--space-2) var(--space-5); border: var(--stroke); border-radius: var(--radius-pill); background: var(--color-accent); color: var(--color-paper); transition: background-color var(--motion-relaxed), transform var(--motion-relaxed); }
 .card button:hover:not(:disabled) { background: var(--color-ink); transform: scale(.99); }
 .card button:disabled { background: var(--color-ink); opacity: .38; }

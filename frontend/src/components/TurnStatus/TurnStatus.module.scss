@@ -1,1 +1,2 @@
-.status { display: flex; gap: 1rem; flex-wrap: wrap; color: var(--muted); }
+.status { display: flex; gap: var(--space-3); flex-wrap: wrap; align-items: center; min-height: 20px; color: var(--color-muted); font-size: 12px; }
+.status span:first-child { color: var(--color-ink); font-weight: 700; }

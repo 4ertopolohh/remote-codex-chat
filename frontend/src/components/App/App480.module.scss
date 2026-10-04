@@ -1,0 +1,6 @@
+@media (max-width: 480px) {
+  .app { grid-template-rows: 58px minmax(0, 1fr); }
+  .conversationHeader { min-height: 58px; padding: var(--space-2) var(--space-4); }
+  .projectName { max-width: 35%; padding: var(--space-1) var(--space-2); }
+  .bottomDock { padding: var(--space-2) var(--space-3) max(var(--space-2), env(safe-area-inset-bottom)); }
+}
