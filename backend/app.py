@@ -40,7 +40,6 @@ from chat_protocol import (
 )
 from codex_bridge import (
     AgentMessageDelta,
-    ApprovalDeclined,
     BridgeError,
     CodexBridge,
     CollaborationCapability,
@@ -353,13 +352,6 @@ def create_app(
                                 and event.thread_id == conversation.thread_id
                             ):
                                 await send_event(ws, AgentStatus(status=event.status))
-                            elif (
-                                isinstance(event, ApprovalDeclined)
-                                and event.thread_id == conversation.thread_id
-                            ):
-                                await send_event(
-                                    ws, AgentStatus(status="approval_declined")
-                                )
                             elif isinstance(event, RequestPending):
                                 if (event.thread_id, event.turn_id) == (
                                     conversation.thread_id,

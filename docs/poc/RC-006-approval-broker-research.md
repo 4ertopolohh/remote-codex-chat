@@ -14,7 +14,7 @@ The `CodexBridge` module owns `pending → resolved | expired | cancelled`. Regi
 
 The public `CodexBridge.next_event`/`answer_request` interface and `/ws/chat` are the agreed test seams. Reconnect starts with no prior request authority; the existing disconnect policy interrupts the turn. The installed stable schema includes the experimental user-input type, but normal application operation reports it as unsupported until explicitly opted in. Real user-input generation depends on a safely triggerable experimental turn and is not inferred from schema presence.
 
-`reason` and `grantRoot` are optional on file approvals. When both are absent, the browser explicitly warns that Codex did not provide file paths or a description and requires acknowledgement before enabling Approve. The request remains answerable with `decline` at any time. A command request without `command` cannot be approved from the browser because its action cannot be shown.
+`reason` and `grantRoot` are optional on file approvals, and the request never contains a list of changed files. The browser warns of this incomplete scope and requires acknowledgement before enabling Approve for every file approval. The request remains answerable with `decline` at any time. A command request without `command` cannot be approved from the browser because its action cannot be shown.
 
 ## Real disposable-repo check
 

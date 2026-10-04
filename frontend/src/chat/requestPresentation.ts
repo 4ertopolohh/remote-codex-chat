@@ -13,7 +13,7 @@ export function requestOutcomeText(request: PendingRequest): string | null {
 }
 
 export function requiresUnknownFileAcknowledgement(request: PendingRequest): boolean {
-  return request.kind === 'file_change' && !request.details.reason && !request.details.grantRoot
+  return request.kind === 'file_change'
 }
 
 export function canApprove(request: PendingRequest, acknowledged: boolean): boolean {

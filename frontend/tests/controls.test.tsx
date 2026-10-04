@@ -83,6 +83,16 @@ test('file approval without details requires explicit acknowledgement', () => {
   expect(socket.commands()).toContainEqual({ type: 'answer_approval', id: 'opaque-3', decision: 'accept' })
 })
 
+test('file approval with a reason still requires file-scope acknowledgement', () => {
+  render(<App />)
+  const socket = FakeSocket.instances[0]
+  socket.emit({ type: 'ready' })
+  socket.emit({ type: 'pending_request', id: 'opaque-4', kind: 'file_change', details: { reason: 'Update proof' } })
+  expect(screen.getByRole('button', { name: 'Approve' }).hasAttribute('disabled')).toBe(true)
+  fireEvent.click(screen.getByRole('checkbox'))
+  expect(screen.getByRole('button', { name: 'Approve' }).hasAttribute('disabled')).toBe(false)
+})
+
 test('missing persisted model falls back to runtime default', () => {
   window.localStorage.setItem('remote-codex-chat.model-id', 'removed')
   render(<App />)

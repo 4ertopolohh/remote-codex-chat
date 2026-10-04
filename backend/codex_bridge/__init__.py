@@ -1,6 +1,5 @@
 from .bridge import (
     AgentMessageDelta,
-    ApprovalDeclined,
     BridgeError,
     CodexBridge,
     CodexUnavailable,
@@ -18,7 +17,6 @@ from .bridge import (
 
 __all__ = [
     "AgentMessageDelta",
-    "ApprovalDeclined",
     "BridgeError",
     "CodexBridge",
     "CodexUnavailable",

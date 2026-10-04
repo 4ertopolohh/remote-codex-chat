@@ -65,12 +65,6 @@ class ThreadStatusChanged:
 
 
 @dataclass(frozen=True)
-class ApprovalDeclined:
-    thread_id: str | None
-    kind: str
-
-
-@dataclass(frozen=True)
 class RequestPending:
     id: str
     thread_id: str
@@ -117,7 +111,6 @@ BridgeEvent = (
     AgentMessageDelta
     | TurnCompleted
     | ThreadStatusChanged
-    | ApprovalDeclined
     | RequestPending
     | RequestFinished
 )
