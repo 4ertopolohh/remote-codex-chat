@@ -9,10 +9,6 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
-from pydantic import TypeAdapter, ValidationError
-
 from chat_protocol import (
     AgentStatus,
     AnswerApproval,
@@ -25,11 +21,15 @@ from chat_protocol import (
     ConversationSelected,
     ListCapabilities,
     ListConversations,
+    ListProjects,
     NewConversation,
     PendingRequest,
+    ProjectList,
+    ProjectSelected,
     Ready,
     RequestOutcome,
     SelectConversation,
+    SelectProject,
     ServerEvent,
     SteerAccepted,
     SteerTurn,
@@ -51,6 +51,10 @@ from codex_bridge import (
     TurnCompleted,
 )
 from conversation_store import ConversationStore
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
+from projects import Project, ProjectAllowlist, ProjectUnavailable
+from pydantic import TypeAdapter, ValidationError
 
 _client_message_adapter = TypeAdapter(ClientMessage)
 
@@ -83,10 +87,15 @@ def create_app(
         if experimental_features is None
         else experimental_features
     )
-    configured_project = (
-        project
-        or Path(os.environ.get("RC_PROJECT_PATH", Path(__file__).resolve().parents[1]))
-    ).resolve()
+    if project is not None:
+        projects = ProjectAllowlist([Project("default", "Default", project.resolve())])
+    elif os.environ.get("RC_PROJECTS") is not None:
+        projects = ProjectAllowlist.from_json(os.environ["RC_PROJECTS"])
+    else:
+        fallback = Path(
+            os.environ.get("RC_PROJECT_PATH", Path(__file__).resolve().parents[1])
+        )
+        projects = ProjectAllowlist([Project("default", "Default", fallback)])
     database_path = database or Path(
         os.environ.get(
             "RC_DATABASE_PATH",
@@ -94,8 +103,18 @@ def create_app(
         )
     )
     store = ConversationStore(database_path)
-    project_id = "default"
     chat_active = False
+    draining_tasks: set[asyncio.Task[object]] = set()
+
+    async def drain_interrupted_turn(bridge: CodexBridge, thread_id: str, active_turn_id: str) -> None:
+        nonlocal chat_active
+        while True:
+            event = await bridge.next_event()
+            if isinstance(event, TurnCompleted) and (
+                event.thread_id, event.turn_id
+            ) == (thread_id, active_turn_id):
+                chat_active = False
+                return
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -110,6 +129,10 @@ def create_app(
         try:
             yield
         finally:
+            for task in draining_tasks:
+                task.cancel()
+            if draining_tasks:
+                await asyncio.gather(*draining_tasks, return_exceptions=True)
             await bridge.close()
 
     app = FastAPI(lifespan=lifespan)
@@ -133,6 +156,7 @@ def create_app(
         chat_active = True
         await ws.accept()
         bridge = app.state.bridge
+        project_id = projects.default_id
         conversation = None
         turn_id: str | None = None
         stopping = False
@@ -182,6 +206,22 @@ def create_app(
                     await send_event(ws, ChatError(code="invalid_message"))
                     continue
                 try:
+                    if isinstance(message, ListProjects):
+                        await send_event(
+                            ws,
+                            ProjectList(
+                                projects=projects.public(), selected_id=project_id
+                            ),
+                        )
+                        continue
+                    if isinstance(message, SelectProject):
+                        if not projects.contains(message.id):
+                            await send_event(ws, ChatError(code="project_not_found"))
+                            continue
+                        project_id = message.id
+                        conversation = None
+                        await send_event(ws, ProjectSelected(id=project_id))
+                        continue
                     if isinstance(message, ListConversations):
                         await send_event(
                             ws,
@@ -202,7 +242,7 @@ def create_app(
                         await send_event(ws, ChatError(code="request_unavailable"))
                         continue
                     if isinstance(message, NewConversation):
-                        thread_id = await bridge.start_thread(configured_project)
+                        thread_id = await bridge.start_thread(projects.resolve(project_id))
                         conversation = store.create(project_id, thread_id)
                         await send_event(
                             ws,
@@ -302,7 +342,7 @@ def create_app(
                         )
                         continue
                     if conversation is None:
-                        thread_id = await bridge.start_thread(configured_project)
+                        thread_id = await bridge.start_thread(projects.resolve(project_id))
                         conversation = store.create(project_id, thread_id)
                         await send_event(
                             ws,
@@ -501,12 +541,24 @@ def create_app(
                                     await send_event(
                                         ws, ChatError(code="turn_in_progress")
                                     )
+                except ProjectUnavailable:
+                    await send_event(ws, ChatError(code="project_unavailable"))
+                    turn_id = None
                 except BridgeError:
                     await send_event(ws, ChatError(code="codex_failure"))
                     turn_id = None
         except WebSocketDisconnect:
             pass
         finally:
+            if event_task is not None and event_task.done() and turn_id is not None:
+                try:
+                    pending_event = event_task.result()
+                    if isinstance(pending_event, TurnCompleted) and conversation is not None and (
+                        pending_event.thread_id, pending_event.turn_id
+                    ) == (conversation.thread_id, turn_id):
+                        turn_id = None
+                except (asyncio.CancelledError, BridgeError):
+                    pass
             tasks = [task for task in (receive_task, event_task) if task is not None]
             for task in tasks:
                 task.add_done_callback(observe_background_task)
@@ -521,7 +573,14 @@ def create_app(
                     await bridge.interrupt_turn(conversation.thread_id, turn_id)
                 except BridgeError:
                     pass
-            chat_active = False
+                task = asyncio.create_task(
+                    drain_interrupted_turn(bridge, conversation.thread_id, turn_id)
+                )
+                draining_tasks.add(task)
+                task.add_done_callback(draining_tasks.discard)
+                task.add_done_callback(observe_background_task)
+            else:
+                chat_active = False
 
     return app
 

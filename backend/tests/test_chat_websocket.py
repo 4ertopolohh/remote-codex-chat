@@ -4,8 +4,6 @@ import asyncio
 import time
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from app import create_app
 from codex_bridge import (
     AgentMessageDelta,
@@ -17,6 +15,7 @@ from codex_bridge import (
     ThreadStatusChanged,
     TurnCompleted,
 )
+from fastapi.testclient import TestClient
 
 
 class FakeBridge:

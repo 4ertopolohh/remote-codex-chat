@@ -69,3 +69,32 @@ test('failed switch clears stale transcript and allows a new conversation', () =
   expect(screen.queryByText('Earlier prompt')).toBeNull()
   expect(screen.getByRole('button', { name: 'New conversation' }).hasAttribute('disabled')).toBe(false)
 })
+
+test('project switch shows only that project conversations and survives reload', () => {
+  const projects = [{ id: 'first', name: 'First' }, { id: 'second', name: 'Second' }]
+  const page = render(<App />)
+  const socket = FakeSocket.instances[0]
+  socket.emit({ type: 'ready' })
+  socket.emit({ type: 'project_list', projects, selected_id: 'first' })
+  socket.emit({ type: 'project_selected', id: 'first' })
+  socket.emit({ type: 'conversation_list', conversations })
+  socket.emit({ type: 'conversation_selected', conversation: conversations[0], messages: [{ role: 'user', text: 'Earlier prompt' }] })
+  fireEvent.change(screen.getByRole('combobox', { name: 'Project' }), { target: { value: 'second' } })
+  expect(socket.commands()).toContainEqual({ type: 'select_project', id: 'second' })
+  socket.emit({ type: 'project_selected', id: 'second' })
+  expect(screen.queryByText('Earlier prompt')).toBeNull()
+  expect(window.localStorage.getItem('remote-codex-chat.project-id')).toBe('second')
+  socket.emit({ type: 'conversation_list', conversations: [] })
+  expect(socket.commands()).toContainEqual({ type: 'new_conversation' })
+  const secondConversation = { id: 'second-id', project_id: 'second', title: 'New conversation', created_at: '2026-10-05', updated_at: '2026-10-05' }
+  socket.emit({ type: 'conversation_selected', conversation: secondConversation, messages: [] })
+  page.unmount()
+  render(<App />)
+  const reloaded = FakeSocket.instances[1]
+  reloaded.emit({ type: 'ready' })
+  reloaded.emit({ type: 'project_list', projects, selected_id: 'first' })
+  expect(reloaded.commands()).toContainEqual({ type: 'select_project', id: 'second' })
+  reloaded.emit({ type: 'project_selected', id: 'second' })
+  reloaded.emit({ type: 'conversation_list', conversations: [secondConversation] })
+  expect(reloaded.commands()).toContainEqual({ type: 'select_conversation', id: 'second-id' })
+})

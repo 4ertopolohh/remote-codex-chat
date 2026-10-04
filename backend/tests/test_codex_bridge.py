@@ -5,7 +5,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
 from codex_bridge import (
     AgentMessageDelta,
     CodexBridge,

@@ -4,6 +4,7 @@ type Connection = 'connecting' | 'connected' | 'disconnected'
 type Turn = 'idle' | 'running' | 'completed' | 'failed' | 'interrupted'
 export type Message = { role: 'user' | 'assistant'; text: string }
 export type ConversationInfo = { id: string; project_id: string; title: string; created_at: string; updated_at: string }
+export type ProjectInfo = { id: string; name: string }
 export type ModelCapability = { id: string; model: string; display_name: string; reasoning_efforts: string[]; default_reasoning_effort: string | null; is_default: boolean }
 export type CollaborationCapability = { name: string; mode: string; model: string | null; reasoning_effort: string | null }
 export type InputQuestion = { id: string; header: string; question: string; options: { label: string; description: string }[] | null; is_other: boolean; is_secret: boolean }
@@ -15,6 +16,8 @@ type ServerEvent =
   | { type: 'pending_request'; id: string; kind: PendingRequest['kind']; details: PendingRequest['details'] }
   | { type: 'request_outcome'; id: string; status: Exclude<PendingRequest['status'], 'pending'> }
   | { type: 'conversation_list'; conversations: ConversationInfo[] }
+  | { type: 'project_list'; projects: ProjectInfo[]; selected_id: string }
+  | { type: 'project_selected'; id: string }
   | { type: 'conversation_selected'; conversation: ConversationInfo; messages: Message[] }
   | { type: 'turn_started' }
   | { type: 'steer_accepted'; text: string }
@@ -24,6 +27,7 @@ type ServerEvent =
   | { type: 'error'; code: string }
 
 const savedConversationKey = 'remote-codex-chat.conversation-id'
+const savedProjectKey = 'remote-codex-chat.project-id'
 const savedModelKey = 'remote-codex-chat.model-id'
 const savedEffortKey = 'remote-codex-chat.reasoning-effort'
 
@@ -31,6 +35,12 @@ function isConversation(value: unknown): value is ConversationInfo {
   if (!value || typeof value !== 'object') return false
   const item = value as Record<string, unknown>
   return ['id', 'project_id', 'title', 'created_at', 'updated_at'].every(key => typeof item[key] === 'string')
+}
+
+function isProject(value: unknown): value is ProjectInfo {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  return typeof item.id === 'string' && typeof item.name === 'string'
 }
 
 function isMessage(value: unknown): value is Message {
@@ -50,6 +60,8 @@ function parseEvent(data: string): ServerEvent | null {
     if (event.type === 'capabilities' && Array.isArray(event.models) && event.models.every(isModel) && Array.isArray(event.collaboration_modes) && event.collaboration_modes.every(isMode)) return event as ServerEvent
     if (event.type === 'steer_accepted' && typeof event.text === 'string') return event as ServerEvent
     if (event.type === 'conversation_list' && Array.isArray(event.conversations) && event.conversations.every(isConversation)) return event as ServerEvent
+    if (event.type === 'project_list' && Array.isArray(event.projects) && event.projects.every(isProject) && typeof event.selected_id === 'string') return event as ServerEvent
+    if (event.type === 'project_selected' && typeof event.id === 'string') return event as ServerEvent
     if (event.type === 'conversation_selected' && isConversation(event.conversation) && Array.isArray(event.messages) && event.messages.every(isMessage)) return event as ServerEvent
     if (event.type === 'assistant_delta' && typeof event.text === 'string') return event as ServerEvent
     if (event.type === 'agent_status' && typeof event.status === 'string') return event as ServerEvent
@@ -75,12 +87,15 @@ export function useChat() {
   const socket = useRef<WebSocket | null>(null)
   const selectedIdRef = useRef<string | null>(null)
   const selectionPendingRef = useRef(false)
+  const projectSelectionPendingRef = useRef(false)
   const pendingPromptRef = useRef<string | null>(null)
   const [connection, setConnection] = useState<Connection>('connecting')
   const [turn, setTurn] = useState<Turn>('idle')
   const [agentStatus, setAgentStatus] = useState('idle')
   const [messages, setMessages] = useState<Message[]>([])
   const [conversations, setConversations] = useState<ConversationInfo[]>([])
+  const [projects, setProjects] = useState<ProjectInfo[]>([])
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [selecting, setSelecting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -111,8 +126,32 @@ export function useChat() {
           case 'ready':
             setConnection('connected')
             setError(null)
-            ws.send(JSON.stringify({ type: 'list_conversations' }))
+            ws.send(JSON.stringify({ type: 'list_projects' }))
             ws.send(JSON.stringify({ type: 'list_capabilities' }))
+            break
+          case 'project_list': {
+            setProjects(event.projects)
+            const saved = window.localStorage.getItem(savedProjectKey)
+            const choice = event.projects.find(item => item.id === saved)?.id ?? event.selected_id
+            projectSelectionPendingRef.current = true
+            setSelecting(true)
+            ws.send(JSON.stringify({ type: 'select_project', id: choice }))
+            break
+          }
+          case 'project_selected':
+            projectSelectionPendingRef.current = false
+            selectionPendingRef.current = false
+            selectedIdRef.current = null
+            setSelectedProjectId(event.id)
+            if (window.localStorage.getItem(savedProjectKey) !== event.id) window.localStorage.removeItem(savedConversationKey)
+            window.localStorage.setItem(savedProjectKey, event.id)
+            setSelectedId(null)
+            setConversations([])
+            setMessages([])
+            setTurn('idle')
+            setSelecting(false)
+            setError(null)
+            ws.send(JSON.stringify({ type: 'list_conversations' }))
             break
           case 'capabilities': {
             setUserInput(event.user_input)
@@ -189,9 +228,11 @@ export function useChat() {
               setActiveTurn(false)
             }
             const wasSelecting = selectionPendingRef.current
+            const wasSelectingProject = projectSelectionPendingRef.current
+            projectSelectionPendingRef.current = false
             selectionPendingRef.current = false
             setSelecting(false)
-            if (wasSelecting || event.code === 'thread_unavailable' || event.code === 'conversation_not_found') {
+            if (wasSelecting || (!wasSelectingProject && (event.code === 'thread_unavailable' || event.code === 'conversation_not_found'))) {
               selectedIdRef.current = null
               setSelectedId(null)
               setMessages([])
@@ -212,6 +253,7 @@ export function useChat() {
         setActiveTurn(false)
         setTurn(current => current === 'running' ? 'failed' : current)
         selectionPendingRef.current = false
+        projectSelectionPendingRef.current = false
         setSelecting(false)
         selectedIdRef.current = null
         setSelectedId(null)
@@ -301,17 +343,24 @@ export function useChat() {
   }
 
   function newConversation(): void {
-    if (socket.current?.readyState !== WebSocket.OPEN || turn === 'running' || selectionPendingRef.current) return
+    if (socket.current?.readyState !== WebSocket.OPEN || turn === 'running' || selectionPendingRef.current || projectSelectionPendingRef.current) return
     selectionPendingRef.current = true
     setSelecting(true)
     socket.current.send(JSON.stringify({ type: 'new_conversation' }))
   }
 
   function selectConversation(id: string): void {
-    if (socket.current?.readyState !== WebSocket.OPEN || turn === 'running' || selectionPendingRef.current || id === selectedId) return
+    if (socket.current?.readyState !== WebSocket.OPEN || turn === 'running' || selectionPendingRef.current || projectSelectionPendingRef.current || id === selectedId) return
     selectionPendingRef.current = true
     setSelecting(true)
     socket.current.send(JSON.stringify({ type: 'select_conversation', id }))
+  }
+
+  function selectProject(id: string): void {
+    if (socket.current?.readyState !== WebSocket.OPEN || turn === 'running' || selectionPendingRef.current || projectSelectionPendingRef.current || id === selectedProjectId || !projects.some(item => item.id === id)) return
+    projectSelectionPendingRef.current = true
+    setSelecting(true)
+    socket.current.send(JSON.stringify({ type: 'select_project', id }))
   }
 
   function answerApproval(id: string, decision: 'accept' | 'decline'): void {
@@ -324,5 +373,5 @@ export function useChat() {
     socket.current.send(JSON.stringify({ type: 'answer_user_input', id, answers }))
   }
 
-  return { connection, turn, activeTurn, agentStatus, messages, conversations, selectedId, selecting, error, models, collaborationModes, selectedModelId, selectedEffort, selectedMode, stopPending, requests, userInput, answerApproval, answerUserInput, send, steer, stop, selectModel, selectEffort, selectMode, refreshCapabilities, newConversation, selectConversation }
+  return { connection, turn, activeTurn, agentStatus, messages, conversations, projects, selectedProjectId, selectedId, selecting, error, models, collaborationModes, selectedModelId, selectedEffort, selectedMode, stopPending, requests, userInput, answerApproval, answerUserInput, send, steer, stop, selectModel, selectEffort, selectMode, refreshCapabilities, newConversation, selectConversation, selectProject }
 }

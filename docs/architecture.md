@@ -6,11 +6,17 @@ validated RC-001 newline-delimited stdio transport. The PoC CLI imports that sam
 transport; there is one framing and JSON-RPC implementation.
 
 The browser connects to `/ws/chat` on FastAPI. It sends validated chat controls and
-answers to pending approval or user-input requests; the backend selects the project from `RC_PROJECT_PATH`
-or the repository root. The application WebSocket reports readiness, turn start,
+answers to pending approval or user-input requests. The backend owns the project
+allowlist in `RC_PROJECTS` (a JSON array of `id`, `name`, and absolute `path`).
+The first entry is the default. With no array configured, `RC_PROJECT_PATH` or the
+repository root remains the single `default` project. The browser receives only
+project IDs and names and selects an ID before creating a conversation. The server
+resolves the corresponding directory immediately before `thread/start`; an unavailable
+directory returns `project_unavailable`. The application WebSocket reports readiness, turn start,
 assistant text deltas, agent status, and terminal completion or error. It never
 exposes app-server request IDs, RPC envelopes, credentials, or a browser-supplied
-working directory. One browser connection and one active turn are supported.
+working directory. One browser connection and one active turn are supported; this
+serializes turns across all projects, including turns targeting the same project.
 
 The bridge interface exposes lifecycle, thread creation/resume, turn start/interrupt,
 and application-level events. Process launch, handshake, request IDs, protocol envelopes,
@@ -38,7 +44,7 @@ checks are separate and do not run in automated tests.
 ## Conversation recovery (RC-004)
 
 `backend/conversation_store.py` keeps an application index in SQLite. Schema version 1
-contains only application conversation ID, fixed single-project ID (`default`), Codex
+contains only application conversation ID, selected project ID, Codex
 thread ID, a short title derived from the first prompt, and creation/update timestamps.
 The file defaults to `backend/data/conversations.sqlite3` and can be set with
 `RC_DATABASE_PATH`. The browser sees the application ID and metadata, never a project

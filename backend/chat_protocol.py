@@ -36,6 +36,19 @@ class NewConversation(BaseModel):
     type: Literal["new_conversation"]
 
 
+class ListProjects(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["list_projects"]
+
+
+class SelectProject(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["select_project"]
+    id: StrictStr = Field(min_length=1)
+
+
 class ListConversations(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["list_conversations"]
@@ -125,12 +138,25 @@ class ChatError(BaseModel):
         "steer_failed",
         "stop_failed",
         "request_unavailable",
+        "project_not_found",
+        "project_unavailable",
     ]
 
 
 class ConversationList(BaseModel):
     type: Literal["conversation_list"] = "conversation_list"
     conversations: list[dict[str, str]]
+
+
+class ProjectList(BaseModel):
+    type: Literal["project_list"] = "project_list"
+    projects: list[dict[str, str]]
+    selected_id: str
+
+
+class ProjectSelected(BaseModel):
+    type: Literal["project_selected"] = "project_selected"
+    id: str
 
 
 class ConversationSelected(BaseModel):
@@ -142,6 +168,8 @@ class ConversationSelected(BaseModel):
 ClientMessage = (
     SubmitPrompt
     | NewConversation
+    | ListProjects
+    | SelectProject
     | ListConversations
     | SelectConversation
     | ListCapabilities
@@ -160,6 +188,8 @@ ServerEvent = (
     | TurnFinished
     | ChatError
     | ConversationList
+    | ProjectList
+    | ProjectSelected
     | ConversationSelected
     | PendingRequest
     | RequestOutcome
