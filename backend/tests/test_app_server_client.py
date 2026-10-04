@@ -7,7 +7,6 @@ import pytest
 
 from poc.app_server_client import AppServerClient, ServerNotification, ServerRequest
 
-
 FAKE_SERVER = r"""
 import json
 import sys
