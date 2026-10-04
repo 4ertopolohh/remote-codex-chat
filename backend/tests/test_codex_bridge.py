@@ -333,8 +333,8 @@ async def test_resume_interrupt_and_rpc_failure(tmp_path: Path) -> None:
         + """
 resume = read()
 assert resume['method'] == 'thread/resume'
-assert resume['params'] == {'threadId': 'thread-1', 'excludeTurns': True}
-send({'id': resume['id'], 'result': {'thread': {'id': 'thread-1'}}})
+assert resume['params'] == {'threadId': 'thread-1', 'excludeTurns': True, 'cwd': EXPECTED_CWD}
+send({'id': resume['id'], 'result': {'thread': {'id': 'thread-1'}, 'cwd': EXPECTED_CWD}})
 interrupt = read()
 assert interrupt['method'] == 'turn/interrupt'
 assert interrupt['params'] == {'threadId': 'thread-1', 'turnId': 'turn-1'}
@@ -342,13 +342,32 @@ send({'id': interrupt['id'], 'result': {}})
 turn = read()
 send({'id': turn['id'], 'error': {'code': -32000, 'message': 'turn rejected'}})
 sys.stdin.readline()
-""",
+""".replace("EXPECTED_CWD", repr(str(tmp_path))),
     )
     try:
-        assert await bridge.resume_thread("thread-1") == "thread-1"
+        assert await bridge.resume_thread("thread-1", tmp_path) == "thread-1"
         await bridge.interrupt_turn("thread-1", "turn-1")
         with pytest.raises(OperationFailed, match="turn rejected"):
             await bridge.start_turn("thread-1", "hello")
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_resume_rejects_an_untrusted_effective_cwd(tmp_path: Path) -> None:
+    bridge = await bridge_for(
+        tmp_path,
+        HANDSHAKE
+        + """
+resume = read()
+assert resume['method'] == 'thread/resume'
+send({'id': resume['id'], 'result': {'thread': {'id': 'thread-1'}, 'cwd': BAD_CWD}})
+sys.stdin.readline()
+""".replace("BAD_CWD", repr(str(tmp_path / "other"))),
+    )
+    try:
+        with pytest.raises(OperationFailed, match="outside configured project"):
+            await bridge.resume_thread("thread-1", tmp_path)
     finally:
         await bridge.close()
 

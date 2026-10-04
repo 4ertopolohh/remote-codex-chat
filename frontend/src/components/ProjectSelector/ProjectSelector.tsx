@@ -1,4 +1,5 @@
 import type { ProjectInfo } from '../../chat/useChat'
+import { SelectControl } from '../SelectControl/SelectControl'
 import styles from './ProjectSelector.module.scss'
 
 type Props = {
@@ -10,10 +11,7 @@ type Props = {
 
 export function ProjectSelector({ projects, selectedId, disabled, onSelect }: Props) {
   if (projects.length === 0) return null
-  return <label className={styles.control}>Project
-    <select value={selectedId ?? ''} disabled={disabled} onChange={event => onSelect(event.target.value)}>
-      {selectedId === null && <option value="">Select project</option>}
-      {projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
-    </select>
-  </label>
+  const options = projects.map(project => ({ value: project.id, label: project.name }))
+  if (selectedId === null) options.unshift({ value: '', label: 'Select project' })
+  return <SelectControl label="Project" value={selectedId ?? ''} options={options} disabled={disabled} onChange={onSelect} className={styles.project} />
 }

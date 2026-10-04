@@ -194,10 +194,21 @@ class CodexBridge:
         result = await self._request("thread/start", params)
         return self._nested_id(result, "thread")
 
-    async def resume_thread(self, thread_id: str) -> str:
+    async def resume_thread(self, thread_id: str, project: Path) -> str:
+        if not project.is_dir():
+            raise OperationFailed("Project directory is unavailable")
+        trusted_cwd = project.resolve()
         result = await self._request(
-            "thread/resume", {"threadId": thread_id, "excludeTurns": True}
+            "thread/resume",
+            {"threadId": thread_id, "excludeTurns": True, "cwd": str(trusted_cwd)},
         )
+        actual_cwd = result.get("cwd") if isinstance(result, dict) else None
+        if (
+            not isinstance(actual_cwd, str)
+            or not Path(actual_cwd).is_absolute()
+            or Path(actual_cwd).resolve() != trusted_cwd
+        ):
+            raise OperationFailed("Resumed thread outside configured project")
         return self._nested_id(result, "thread")
 
     async def read_messages(self, thread_id: str) -> list[dict[str, str]]:

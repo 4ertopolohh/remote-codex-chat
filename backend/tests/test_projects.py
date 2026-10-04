@@ -73,6 +73,23 @@ def test_missing_configured_directory_returns_controlled_error(tmp_path: Path, m
         assert ws.receive_json() == {"type": "error", "code": "project_unavailable"}
 
 
+def test_removed_project_blocks_resuming_its_conversation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("RC_PROJECTS", json.dumps(configured(tmp_path)))
+    threads: set[str] = set()
+    with (
+        TestClient(create_app(lambda: RecoveryBridge(threads), database=tmp_path / "db.sqlite3")) as client,
+        client.websocket_connect("/ws/chat") as ws,
+    ):
+        assert ws.receive_json() == {"type": "ready"}
+        ws.send_json({"type": "new_conversation"})
+        conversation_id = ws.receive_json()["conversation"]["id"]
+        (tmp_path / "first").rmdir()
+        ws.send_json({"type": "select_conversation", "id": conversation_id})
+        assert ws.receive_json() == {"type": "error", "code": "project_unavailable"}
+
+
 def test_invalid_configurations_fail_before_serving(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     cases = [
         [{"id": "../evil", "name": "Evil", "path": str(tmp_path)}],

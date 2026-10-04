@@ -27,7 +27,7 @@ class FakeBridge:
         self.threads.add(thread_id)
         return thread_id
 
-    async def resume_thread(self, thread_id: str) -> str:
+    async def resume_thread(self, thread_id: str, project: Path) -> str:
         if thread_id not in self.threads:
             raise OperationFailed("thread not found")
         self.resumed.append(thread_id)

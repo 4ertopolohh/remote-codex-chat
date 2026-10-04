@@ -52,8 +52,10 @@ filesystem path. Codex remains the execution and transcript source of truth.
 
 The WebSocket accepts `new_conversation`, `list_conversations`, and
 `select_conversation` alongside `submit_prompt`. Creating a conversation starts an
-independent Codex thread and records its ID. Selecting one calls `thread/resume`
-through `CodexBridge`, then `thread/read` with `includeTurns: true` to rebuild the
+independent Codex thread and records its ID. Selecting one resolves its configured
+project path, passes it to `thread/resume` through `CodexBridge`, and verifies the
+effective cwd in the response. A mismatch rejects the conversation as unavailable.
+The application then calls `thread/read` with `includeTurns: true` to rebuild the
 text-only display from persisted user and agent items. Browser local storage remembers
 only the selected application ID; on reload/reconnect it requests the list and selects
 that ID. After a backend restart, the same SQLite file supplies the thread ID.
