@@ -2,16 +2,40 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+from codex_bridge import (
+    AgentMessageDelta,
+    ApprovalDeclined,
+    BridgeError,
+    CodexBridge,
+    ThreadStatusChanged,
+    TurnCompleted,
+)
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, ValidationError
 
-from codex_bridge import CodexBridge
+
+class SubmitPrompt(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    type: StrictStr = Field(pattern="^submit_prompt$")
+    text: StrictStr = Field(min_length=1, max_length=10000)
 
 
-def create_app(bridge_factory: Callable[[], CodexBridge] = CodexBridge) -> FastAPI:
+def create_app(
+    bridge_factory: Callable[[], CodexBridge] = CodexBridge,
+    *,
+    project: Path | None = None,
+) -> FastAPI:
+    configured_project = (project or Path(os.environ.get("RC_PROJECT_PATH", Path(__file__).resolve().parents[1]))).resolve()
+    chat_active = False
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         bridge = bridge_factory()
@@ -33,6 +57,80 @@ def create_app(bridge_factory: Callable[[], CodexBridge] = CodexBridge) -> FastA
         if app.state.bridge.ready:
             return JSONResponse({"status": "ready"})
         return JSONResponse({"status": "unavailable"}, status_code=503)
+
+    @app.websocket("/ws/chat")
+    async def chat(ws: WebSocket) -> None:
+        nonlocal chat_active
+        if chat_active:
+            await ws.close(code=1008, reason="Chat is already in use")
+            return
+        chat_active = True
+        await ws.accept()
+        bridge = app.state.bridge
+        thread_id: str | None = None
+        turn_id: str | None = None
+        try:
+            if not bridge.ready:
+                await ws.send_json({"type": "error", "code": "codex_unavailable"})
+                await ws.close(code=1011)
+                return
+            await ws.send_json({"type": "ready"})
+            while True:
+                try:
+                    raw = await ws.receive_json()
+                    message = SubmitPrompt.model_validate(raw)
+                    if not message.text.strip():
+                        raise ValueError("Empty prompt")
+                except (ValidationError, ValueError):
+                    await ws.send_json({"type": "error", "code": "invalid_message"})
+                    continue
+                try:
+                    if thread_id is None:
+                        thread_id = await bridge.start_thread(configured_project)
+                    turn_id = await bridge.start_turn(thread_id, message.text)
+                    await ws.send_json({"type": "turn_started"})
+                    while turn_id is not None:
+                        receive_task = asyncio.create_task(ws.receive_json())
+                        event_task = asyncio.create_task(bridge.next_event())
+                        done, pending = await asyncio.wait(
+                            {receive_task, event_task}, return_when=asyncio.FIRST_COMPLETED
+                        )
+                        for task in pending:
+                            task.cancel()
+                        await asyncio.gather(*pending, return_exceptions=True)
+                        if receive_task in done:
+                            try:
+                                receive_task.result()
+                            except WebSocketDisconnect:
+                                raise
+                            except ValueError:
+                                pass
+                            else:
+                                await ws.send_json({"type": "error", "code": "turn_in_progress"})
+                        if event_task in done:
+                            event = event_task.result()
+                            if isinstance(event, AgentMessageDelta) and (event.thread_id, event.turn_id) == (thread_id, turn_id):
+                                await ws.send_json({"type": "assistant_delta", "text": event.text})
+                            elif isinstance(event, ThreadStatusChanged) and event.thread_id == thread_id:
+                                await ws.send_json({"type": "agent_status", "status": event.status})
+                            elif isinstance(event, ApprovalDeclined) and event.thread_id == thread_id:
+                                await ws.send_json({"type": "agent_status", "status": "approval_declined"})
+                            elif isinstance(event, TurnCompleted) and (event.thread_id, event.turn_id) == (thread_id, turn_id):
+                                status = event.status if event.status in {"completed", "failed", "interrupted"} else "failed"
+                                await ws.send_json({"type": "turn_completed", "status": status})
+                                turn_id = None
+                except BridgeError:
+                    await ws.send_json({"type": "error", "code": "codex_failure"})
+                    turn_id = None
+        except WebSocketDisconnect:
+            pass
+        finally:
+            if thread_id is not None and turn_id is not None:
+                try:
+                    await bridge.interrupt_turn(thread_id, turn_id)
+                except BridgeError:
+                    pass
+            chat_active = False
 
     return app
 

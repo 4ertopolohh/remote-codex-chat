@@ -5,6 +5,13 @@ lifetime. `CodexBridge` owns a local `codex app-server` child process and uses t
 validated RC-001 newline-delimited stdio transport. The PoC CLI imports that same
 transport; there is one framing and JSON-RPC implementation.
 
+The browser connects to `/ws/chat` on FastAPI. Its only command is a validated
+`submit_prompt` with text; the backend selects the project from `RC_PROJECT_PATH`
+or the repository root. The application WebSocket reports readiness, turn start,
+assistant text deltas, agent status, and terminal completion or error. It never
+exposes app-server request IDs, RPC envelopes, credentials, or a browser-supplied
+working directory. One browser connection and one active turn are supported.
+
 The bridge interface exposes lifecycle, thread creation/resume, turn start/interrupt,
 and application-level events. Process launch, handshake, request IDs, protocol envelopes,
 server requests, and stderr diagnostics remain inside the module. The future browser

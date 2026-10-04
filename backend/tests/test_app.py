@@ -3,10 +3,9 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
 from app import create_app
 from codex_bridge import CodexBridge
+from fastapi.testclient import TestClient
 
 
 def test_fastapi_lifecycle_and_readiness(tmp_path: Path) -> None:
