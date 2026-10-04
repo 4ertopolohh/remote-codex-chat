@@ -36,14 +36,19 @@ export function useChat() {
 
   useEffect(() => {
     const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const ws = new WebSocket(`${scheme}//${window.location.host}/ws/chat`)
-    socket.current = ws
-    ws.onmessage = ({ data }: MessageEvent<string>) => {
+    let disposed = false
+    let retry: ReturnType<typeof setTimeout> | undefined
+    function connect() {
+      if (disposed) return
+      setConnection('connecting')
+      const ws = new WebSocket(`${scheme}//${window.location.host}/ws/chat`)
+      socket.current = ws
+      ws.onmessage = ({ data }: MessageEvent<string>) => {
       if (socket.current !== ws) return
       const event = parseEvent(data)
       if (!event) return
       switch (event.type) {
-        case 'ready': setConnection('connected'); break
+        case 'ready': setConnection('connected'); setError(null); break
         case 'turn_started': setTurn('running'); setAgentStatus('starting'); break
         case 'assistant_delta':
           setMessages(previous => {
@@ -59,10 +64,22 @@ export function useChat() {
           if (event.code !== 'invalid_message' && event.code !== 'turn_in_progress') setTurn('failed')
           break
       }
+      }
+      ws.onclose = () => {
+        if (disposed || socket.current !== ws) return
+        setConnection('disconnected')
+        setTurn(current => current === 'running' ? 'failed' : current)
+        retry = setTimeout(connect, 500)
+      }
+      ws.onerror = () => { if (socket.current === ws) setError('connection_failed') }
     }
-    ws.onclose = () => { if (socket.current === ws) { setConnection('disconnected'); setTurn(current => current === 'running' ? 'failed' : current) } }
-    ws.onerror = () => { if (socket.current === ws) setError('connection_failed') }
-    return () => { ws.close(); socket.current = null }
+    connect()
+    return () => {
+      disposed = true
+      clearTimeout(retry)
+      socket.current?.close()
+      socket.current = null
+    }
   }, [])
 
   function send(text: string): boolean {

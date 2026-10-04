@@ -8,6 +8,16 @@ from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from chat_protocol import (
+    AgentStatus,
+    AssistantDelta,
+    ChatError,
+    Ready,
+    ServerEvent,
+    SubmitPrompt,
+    TurnFinished,
+    TurnStarted,
+)
 from codex_bridge import (
     AgentMessageDelta,
     ApprovalDeclined,
@@ -18,14 +28,11 @@ from codex_bridge import (
 )
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, StrictStr, ValidationError
+from pydantic import ValidationError
 
 
-class SubmitPrompt(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    type: StrictStr = Field(pattern="^submit_prompt$")
-    text: StrictStr = Field(min_length=1, max_length=10000)
+async def send_event(ws: WebSocket, event: ServerEvent) -> None:
+    await ws.send_json(event.model_dump())
 
 
 def create_app(
@@ -71,24 +78,24 @@ def create_app(
         turn_id: str | None = None
         try:
             if not bridge.ready:
-                await ws.send_json({"type": "error", "code": "codex_unavailable"})
+                await send_event(ws, ChatError(code="codex_unavailable"))
                 await ws.close(code=1011)
                 return
-            await ws.send_json({"type": "ready"})
+            await send_event(ws, Ready())
             while True:
                 try:
                     raw = await ws.receive_json()
                     message = SubmitPrompt.model_validate(raw)
                     if not message.text.strip():
                         raise ValueError("Empty prompt")
-                except (ValidationError, ValueError):
-                    await ws.send_json({"type": "error", "code": "invalid_message"})
+                except (ValidationError, ValueError, KeyError, TypeError):
+                    await send_event(ws, ChatError(code="invalid_message"))
                     continue
                 try:
                     if thread_id is None:
                         thread_id = await bridge.start_thread(configured_project)
                     turn_id = await bridge.start_turn(thread_id, message.text)
-                    await ws.send_json({"type": "turn_started"})
+                    await send_event(ws, TurnStarted())
                     while turn_id is not None:
                         receive_task = asyncio.create_task(ws.receive_json())
                         event_task = asyncio.create_task(bridge.next_event())
@@ -103,24 +110,24 @@ def create_app(
                                 receive_task.result()
                             except WebSocketDisconnect:
                                 raise
-                            except ValueError:
-                                pass
+                            except (ValueError, KeyError, TypeError):
+                                await send_event(ws, ChatError(code="invalid_message"))
                             else:
-                                await ws.send_json({"type": "error", "code": "turn_in_progress"})
+                                await send_event(ws, ChatError(code="turn_in_progress"))
                         if event_task in done:
                             event = event_task.result()
                             if isinstance(event, AgentMessageDelta) and (event.thread_id, event.turn_id) == (thread_id, turn_id):
-                                await ws.send_json({"type": "assistant_delta", "text": event.text})
+                                await send_event(ws, AssistantDelta(text=event.text))
                             elif isinstance(event, ThreadStatusChanged) and event.thread_id == thread_id:
-                                await ws.send_json({"type": "agent_status", "status": event.status})
+                                await send_event(ws, AgentStatus(status=event.status))
                             elif isinstance(event, ApprovalDeclined) and event.thread_id == thread_id:
-                                await ws.send_json({"type": "agent_status", "status": "approval_declined"})
+                                await send_event(ws, AgentStatus(status="approval_declined"))
                             elif isinstance(event, TurnCompleted) and (event.thread_id, event.turn_id) == (thread_id, turn_id):
                                 status = event.status if event.status in {"completed", "failed", "interrupted"} else "failed"
-                                await ws.send_json({"type": "turn_completed", "status": status})
+                                await send_event(ws, TurnFinished(status=status))
                                 turn_id = None
                 except BridgeError:
-                    await ws.send_json({"type": "error", "code": "codex_failure"})
+                    await send_event(ws, ChatError(code="codex_failure"))
                     turn_id = None
         except WebSocketDisconnect:
             pass
