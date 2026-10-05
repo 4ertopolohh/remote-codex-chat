@@ -32,7 +32,10 @@ async def event_of(socket, kind: str, timeout: float = 90) -> dict:
             return event
 
 
-async def turn(socket, prompt: str, *, stop: bool = False, model: dict | None = None) -> int:
+async def turn(
+    socket, prompt: str, *, stop: bool = False, immediate_stop: bool = False,
+    model: dict | None = None,
+) -> int:
     message = {"type": "submit_prompt", "text": prompt}
     if model is not None:
         message["model_id"] = model["id"]
@@ -40,13 +43,14 @@ async def turn(socket, prompt: str, *, stop: bool = False, model: dict | None = 
     await socket.send(json.dumps(message))
     await event_of(socket, "turn_started")
     deltas = 0
-    if stop:
+    if stop and not immediate_stop:
         while not deltas:
             event = await receive_event(socket, 120)
             if event.get("type") == "turn_completed":
                 raise RuntimeError("Turn completed before Stop could be exercised")
             if event.get("type") == "assistant_delta":
                 deltas += 1
+    if stop:
         await socket.send(json.dumps({"type": "stop_turn"}))
     while True:
         event = await receive_event(socket, 120)
@@ -68,6 +72,7 @@ async def main() -> None:
             "RC_PUBLIC_ORIGIN": ORIGIN,
             "RC_AUTH_DATABASE_PATH": str(Path(directory) / "auth.sqlite3"),
             "RC_DATABASE_PATH": str(Path(directory) / "conversations.sqlite3"),
+            "RC_PROJECTS": json.dumps([{"id": "probe", "name": "Probe", "path": directory}]),
         })
         server = await asyncio.create_subprocess_exec(
             sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8766",
@@ -100,7 +105,7 @@ async def main() -> None:
                     await event_of(socket, "ready")
                     await socket.send(json.dumps({"type": "list_projects"}))
                     projects = await event_of(socket, "project_list")
-                    assert projects["projects"]
+                    assert [project["id"] for project in projects["projects"]] == ["probe"]
                     await socket.send(json.dumps({"type": "select_project", "id": "unknown-project"}))
                     rejected = json.loads(await asyncio.wait_for(socket.recv(), 10))
                     assert rejected.get("type") == "error"
@@ -116,6 +121,7 @@ async def main() -> None:
                     await socket.send(json.dumps({"type": "read_usage"}))
                     usage = await event_of(socket, "usage")
                     assert usage
+                    await turn(socket, "Write a very long story with 100 chapters. Start immediately.", stop=True, immediate_stop=True)
                     await turn(socket, "Write a very long story with 100 chapters. Start immediately.", stop=True)
                 async with connect("ws://127.0.0.1:8766/ws/chat", origin=ORIGIN, additional_headers=headers) as socket:
                     await event_of(socket, "ready")
@@ -128,7 +134,7 @@ async def main() -> None:
                 logout = await client.post("/auth/logout", headers={"Origin": ORIGIN, "X-CSRF-Token": session.json()["csrf"]})
                 assert logout.status_code == 200
                 assert (await client.get("/auth/session")).status_code == 401
-                print("PASS: build, login, ready, project rejection, model/effort, new turn/stream, usage, Stop, reconnect/resume, logout")
+                print("PASS: build, login, ready, project rejection, model/effort, new turn/stream, usage, early/streaming Stop, reconnect/resume, logout")
         finally:
             server.terminate()
             try:

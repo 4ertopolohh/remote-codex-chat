@@ -101,7 +101,7 @@ npm test
 npm run build
 ```
 
-With a built frontend and a signed-in local Codex CLI, run `cd backend; uv run --no-sync python scripts/rc014_local_probe.py` for a real loopback smoke test. It uses a random temporary password and databases, starts FastAPI on `127.0.0.1:8766`, and stops it afterward. Port 8766 must be free. This checks the application path, but does not replace the physical-phone tunnel test.
+With a built frontend and a signed-in local Codex CLI, run `cd backend; uv run --no-sync python scripts/rc014_local_probe.py` for a real loopback smoke test. It uses a random temporary password, project, and databases, starts FastAPI on `127.0.0.1:8766`, and stops it afterward. Port 8766 must be free. This checks the application path, but does not replace the physical-phone tunnel test.
 
 If backend startup fails, confirm `RC_PASSWORD_HASH` starts with `$argon2id$`, `codex` is on `PATH` and signed in for this Windows user, the project directories exist, and `frontend/dist/index.html` exists in remote mode. If login or WebSocket fails, compare the browser's exact scheme/host/port with `RC_PUBLIC_ORIGIN`, and use HTTPS in remote mode. A public `/health` success does not mean `/ready` or login works. If the tunnel returns 503 but loopback `/health` works, inspect the foreground CloudPub client and restart only the registered publication. If a turn's outcome is uncertain after disconnection, review the persisted conversation before resubmitting; prompts are not replayed automatically. See [recovery behavior](docs/poc/RC-013-resilience.md).
 

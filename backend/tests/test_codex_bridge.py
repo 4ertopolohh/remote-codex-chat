@@ -329,6 +329,28 @@ async def test_malformed_notification_is_stable_error(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_interrupt_retries_before_codex_marks_the_turn_active(tmp_path: Path) -> None:
+    bridge = await bridge_for(
+        tmp_path,
+        HANDSHAKE
+        + """
+first = read()
+assert first['method'] == 'turn/interrupt'
+send({'id': first['id'], 'error': {'code': -32600, 'message': 'no active turn to interrupt'}})
+second = read()
+assert second['method'] == 'turn/interrupt'
+assert second['params'] == first['params']
+send({'id': second['id'], 'result': {}})
+sys.stdin.readline()
+""",
+    )
+    try:
+        await bridge.interrupt_turn("thread-1", "turn-1")
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
 async def test_resume_interrupt_and_rpc_failure(tmp_path: Path) -> None:
     bridge = await bridge_for(
         tmp_path,

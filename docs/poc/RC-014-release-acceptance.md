@@ -10,7 +10,7 @@ The clean-equivalent checkout was a fresh detached `git worktree` in a temporary
 | --- | --- |
 | `cd backend; uv sync --locked --dev` | PASS: created Python 3.12.15 environment and installed 58 locked packages. |
 | `cd backend; uv run --no-sync ruff check .` | PASS. |
-| `cd backend; uv run --no-sync pytest -q` | PASS on final clean checkout: 60 tests, 3 non-failing Windows/Starlette warnings. An initial clean run exposed a remote cookie test's dependency on `frontend/dist/index.html`; a test-owned fixture removed that dependency. |
+| `cd backend; uv run --no-sync pytest -q` | PASS on clean checkout after the setup fixture fix: 60 tests, 3 non-failing Windows/Starlette warnings. An initial clean run exposed a remote cookie test's dependency on `frontend/dist/index.html`; a test-owned fixture removed that dependency. Final revision adds one Stop regression test; its clean checkout result is recorded below. |
 | `cd frontend; npm ci` | PASS: installed 232 packages from lockfile, npm reported 0 vulnerabilities at check time. |
 | `cd frontend; npm run lint` | PASS. |
 | `cd frontend; npm test` | PASS: 33 tests in 8 files. |
@@ -18,11 +18,13 @@ The clean-equivalent checkout was a fresh detached `git worktree` in a temporary
 
 The targeted regression command `cd backend; uv run --no-sync pytest tests/test_auth.py::test_remote_cookie_is_secure_and_configuration_fails_closed -q` passed (1 test). The final clean checkout also passed the full backend suite, independently of frontend build order. The three warnings concern deprecated TestClient and Windows subprocess transports; they are not failing checks.
 
+After the early Stop fix, `cd backend; uv run --no-sync pytest tests/test_codex_bridge.py::test_interrupt_retries_before_codex_marks_the_turn_active -q` passed (1 test), repository-wide Ruff passed, and the working-checkout backend suite passed (61 tests). A fresh clean checkout of the final revision is the remaining verification step.
+
 ## Real local Codex evidence
 
-`codex login status` reported `Logged in using ChatGPT`. `cd backend; uv run --no-sync python -m poc.rc006_real_approval_check` completed a real command approval for `echo RC006_OK` in a disposable Git repository; the temporary repository remained clean. The new `cd backend; uv run --no-sync python scripts/rc014_local_probe.py` passed with a real local app-server: built page, anonymous rejection, login, authenticated readiness, unknown-project rejection, dynamic model and reasoning choice, new conversation, text streaming, usage response, Stop after streaming began, WebSocket reconnect, persistent conversation selection, follow-up prompt, and logout. It uses temporary databases and prints no credentials or account values.
+`codex login status` reported `Logged in using ChatGPT`. `cd backend; uv run --no-sync python -m poc.rc006_real_approval_check` completed a real command approval for `echo RC006_OK` in a disposable Git repository; the temporary repository remained clean. The new `cd backend; uv run --no-sync python scripts/rc014_local_probe.py` passed with a real local app-server: built page, anonymous rejection, login, authenticated readiness, unknown-project rejection, dynamic model and reasoning choice, new conversation, text streaming, usage response, immediate Stop, Stop after streaming began, WebSocket reconnect, persistent conversation selection, follow-up prompt, and logout. It uses a temporary project and databases and prints no credentials or account values.
 
-Two early Stop attempts sent immediately after `turn_started` returned `stop_failed` from the current Codex runtime. A Stop after the first assistant delta returned `interrupted`. The UI can show Stop before a delta, so the early race is a known unresolved behavior; its impact and fix need review before claiming unconditional Stop acceptance.
+Two initial early Stop attempts sent immediately after `turn_started` returned `stop_failed`. A direct bridge probe identified the runtime response: `turn/interrupt failed (-32600): no active turn to interrupt` immediately after `turn/start`, followed by success with the same turn ID after 200 ms. `CodexBridge.interrupt_turn` now retries only this exact transient error, at most twice, 200 ms apart. A fake app-server regression test failed before the fix and passed after it. The local application probe then returned `interrupted` for both immediate and streaming Stop. A future Codex version should be revalidated against this protocol behavior.
 
 ## Remote and mobile acceptance
 

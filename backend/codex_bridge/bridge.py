@@ -403,9 +403,22 @@ class CodexBridge:
             raise MalformedProtocol("Unexpected steered turn ID")
 
     async def interrupt_turn(self, thread_id: str, turn_id: str) -> None:
-        await self._request(
-            "turn/interrupt", {"threadId": thread_id, "turnId": turn_id}
-        )
+        params = {"threadId": thread_id, "turnId": turn_id}
+        for attempt in range(3):
+            try:
+                await self._request("turn/interrupt", params)
+                return
+            except OperationFailed as exc:
+                rpc_error = exc.__cause__
+                # Codex can acknowledge turn/start before the turn is interruptible.
+                if not (
+                    attempt < 2
+                    and isinstance(rpc_error, AppServerRpcError)
+                    and rpc_error.code == -32600
+                    and rpc_error.message == "no active turn to interrupt"
+                ):
+                    raise
+                await asyncio.sleep(0.2)
 
     async def next_event(self, *, timeout: float | None = None) -> BridgeEvent:
         if not self.ready and self._events.empty():
