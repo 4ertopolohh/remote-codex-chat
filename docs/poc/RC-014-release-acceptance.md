@@ -10,13 +10,13 @@ The clean-equivalent checkout was a fresh detached `git worktree` in a temporary
 | --- | --- |
 | `cd backend; uv sync --locked --dev` | PASS: created Python 3.12.15 environment and installed 58 locked packages. |
 | `cd backend; uv run --no-sync ruff check .` | PASS. |
-| `cd backend; uv run --no-sync pytest -q` | Initially FAIL: one remote cookie test depended on a pre-existing `frontend/dist/index.html` while frontend build ran in parallel. A test-owned build fixture was added. Final clean rerun recorded below. |
+| `cd backend; uv run --no-sync pytest -q` | PASS on final clean checkout: 60 tests, 3 non-failing Windows/Starlette warnings. An initial clean run exposed a remote cookie test's dependency on `frontend/dist/index.html`; a test-owned fixture removed that dependency. |
 | `cd frontend; npm ci` | PASS: installed 232 packages from lockfile, npm reported 0 vulnerabilities at check time. |
 | `cd frontend; npm run lint` | PASS. |
 | `cd frontend; npm test` | PASS: 33 tests in 8 files. |
 | `cd frontend; npm run build` | PASS: TypeScript and Vite production build. |
 
-The targeted regression command `cd backend; uv run --no-sync pytest tests/test_auth.py::test_remote_cookie_is_secure_and_configuration_fails_closed -q` passed (1 test). The full working-checkout backend suite passed (60 tests) after the fixture change, with three Windows/Starlette warnings about deprecated TestClient and subprocess transports. These are warnings, not failing checks.
+The targeted regression command `cd backend; uv run --no-sync pytest tests/test_auth.py::test_remote_cookie_is_secure_and_configuration_fails_closed -q` passed (1 test). The final clean checkout also passed the full backend suite, independently of frontend build order. The three warnings concern deprecated TestClient and Windows subprocess transports; they are not failing checks.
 
 ## Real local Codex evidence
 

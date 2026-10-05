@@ -18,11 +18,16 @@ from websockets.asyncio.client import connect
 ORIGIN = "http://127.0.0.1:8766"
 
 
+async def receive_event(socket, timeout: float = 90) -> dict:
+    event = json.loads(await asyncio.wait_for(socket.recv(), timeout))
+    if event.get("type") == "error":
+        raise RuntimeError(f"Application error: {event.get('code')}")
+    return event
+
+
 async def event_of(socket, kind: str, timeout: float = 90) -> dict:
     while True:
-        event = json.loads(await asyncio.wait_for(socket.recv(), timeout))
-        if event.get("type") == "error":
-            raise RuntimeError(f"Application error: {event.get('code')}")
+        event = await receive_event(socket, timeout)
         if event.get("type") == kind:
             return event
 
@@ -37,18 +42,14 @@ async def turn(socket, prompt: str, *, stop: bool = False, model: dict | None = 
     deltas = 0
     if stop:
         while not deltas:
-            event = json.loads(await asyncio.wait_for(socket.recv(), 120))
-            if event.get("type") == "error":
-                raise RuntimeError(f"Application error: {event.get('code')}")
+            event = await receive_event(socket, 120)
             if event.get("type") == "turn_completed":
                 raise RuntimeError("Turn completed before Stop could be exercised")
             if event.get("type") == "assistant_delta":
                 deltas += 1
         await socket.send(json.dumps({"type": "stop_turn"}))
     while True:
-        event = json.loads(await asyncio.wait_for(socket.recv(), 120))
-        if event.get("type") == "error":
-            raise RuntimeError(f"Application error: {event.get('code')}")
+        event = await receive_event(socket, 120)
         if event.get("type") == "assistant_delta":
             deltas += 1
         if event.get("type") == "turn_completed":
@@ -135,6 +136,8 @@ async def main() -> None:
             except TimeoutError:
                 server.kill()
                 await asyncio.wait_for(server.wait(), 5)
+            # Windows can briefly retain SQLite file handles after process exit.
+            await asyncio.sleep(0.5)
 
 
 if __name__ == "__main__":
