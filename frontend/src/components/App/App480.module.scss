@@ -1,6 +1,6 @@
 @media (max-width: 480px) {
   .app { grid-template-rows: 58px minmax(0, 1fr); }
-  .brandMark { width: 36px; height: 36px; font-size: 22px; }
+  .brandMark { width: 36px; height: 36px; }
   .conversationHeader { min-height: 58px; padding: var(--space-2) var(--space-4); }
   .conversationTitle h1 { font-size: 15px; }
   .projectName { max-width: 35%; padding: var(--space-1) var(--space-2); }

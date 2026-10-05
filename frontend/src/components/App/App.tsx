@@ -16,6 +16,7 @@ import styles from './App.module.scss'
 import responsive from './App768.module.scss'
 import narrow from './App480.module.scss'
 import short from './AppHeight480.module.scss'
+import logoUrl from '../../../../logo.png'
 
 export function App({ onLogout, onAuthRequired, authError }: { onLogout?: () => void; onAuthRequired?: () => void; authError?: string | null }) {
   const chat = useChat(onAuthRequired)
@@ -80,7 +81,7 @@ export function App({ onLogout, onAuthRequired, authError }: { onLogout?: () => 
 
   return <main className={`${styles.app} ${responsive.app} ${narrow.app}`}>
     <header className={`${styles.header} ${responsive.header}`}>
-      <div className={`${styles.brand} ${responsive.brand}`}><span className={`${styles.brandMark} ${narrow.brandMark}`} aria-hidden="true">✳</span><div><strong>Codex</strong><small>Удалённое рабочее пространство</small></div></div>
+      <div className={`${styles.brand} ${responsive.brand}`}><img className={`${styles.brandMark} ${narrow.brandMark}`} src={logoUrl} alt="" aria-hidden="true" /><div><strong>Codex</strong><small>Удалённое рабочее пространство</small></div></div>
       <div className={`${styles.headerActions} ${responsive.headerActions}`}>
         <ConnectionStatus status={chat.connection} />
         {onLogout && <ActionButton tone="secondary" onClick={onLogout}>Выйти</ActionButton>}

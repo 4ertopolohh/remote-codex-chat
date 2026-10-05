@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { App } from '../App/App'
 import { ActionButton } from '../ActionButton/ActionButton'
 import styles from './AuthGate.module.scss'
+import logoUrl from '../../../../logo.png'
 
 type AuthState = { status: 'checking' | 'signed-out' | 'signed-in'; csrf: string | null; error: string | null }
 
@@ -62,7 +63,7 @@ export function AuthGate() {
 
   return <main className={styles.page}>
     <section className={styles.card} aria-labelledby="auth-title">
-      <span className={styles.mark} aria-hidden="true">✳</span>
+      <img className={styles.mark} src={logoUrl} alt="" aria-hidden="true" />
       <span className={styles.eyebrow}>УДАЛЁННОЕ РАБОЧЕЕ ПРОСТРАНСТВО</span>
       <h1 id="auth-title">Codex</h1>
       {auth.status === 'checking' ? <p role="status">Проверяем сессию…</p> : <>

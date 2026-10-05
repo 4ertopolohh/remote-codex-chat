@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from 'react'
 import type { Message } from '../../chat/useChat'
 import styles from './Conversation.module.scss'
 import narrow from './Conversation480.module.scss'
+import logoUrl from '../../../../logo.png'
 
 function renderMessageText(text: string) {
   return <div className={styles.text}>{text.split(/(```[\s\S]*?(?:```|$))/g).map((part, index) => {
@@ -34,7 +35,7 @@ export function Conversation({ messages, loading = false, conversationId = null 
 
   return <section ref={viewport} className={`${styles.conversation} ${narrow.conversation}`} aria-label="Переписка" role="region" onScroll={onScroll}>
     {messages.length === 0 && <div className={styles.empty}>
-      <span className={styles.emptyMark}>✳</span>
+      <img className={styles.emptyMark} src={logoUrl} alt="" aria-hidden="true" />
       <h2>{loading ? 'Открываем чат…' : 'Начните разговор'}</h2>
       <p>{loading ? 'Здесь появятся ваши сообщения.' : 'Задайте Codex вопрос о выбранном проекте.'}</p>
     </div>}

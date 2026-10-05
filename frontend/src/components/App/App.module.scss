@@ -1,7 +1,7 @@
 .app { width: min(100%, 1600px); height: var(--app-height, 100dvh); margin: auto; padding: var(--space-4); display: grid; grid-template-columns: minmax(240px, 286px) minmax(0, 1fr); grid-template-rows: 64px minmax(0, 1fr); gap: var(--space-3); overflow: hidden; }
 .header { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; min-width: 0; padding: 0 var(--space-4); }
 .brand { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
-.brandMark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: var(--color-ink); color: var(--color-paper); font-size: 26px; }
+.brandMark { display: block; width: 42px; height: 42px; object-fit: contain; }
 .brand strong { display: block; font-family: var(--font-emphasis); font-size: 18px; line-height: 1.1; }
 .brand small { display: block; color: var(--color-muted); font-size: 12px; }
 .headerActions { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
