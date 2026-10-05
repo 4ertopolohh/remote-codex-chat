@@ -253,6 +253,7 @@ def create_app(
         event_task: asyncio.Task[object] | None = None
         usage_task: asyncio.Task[None] | None = None
         usage_updates_task: asyncio.Task[None] | None = None
+        pending_message: ClientMessage | None = None
 
         async def discover_models() -> tuple[ModelCapability, ...]:
             try:
@@ -310,8 +311,16 @@ def create_app(
             usage_updates_task.add_done_callback(observe_background_task)
             while True:
                 try:
-                    raw = await ws.receive_json()
-                    message = parse_client_message(raw)
+                    if pending_message is not None:
+                        message = pending_message
+                        pending_message = None
+                    else:
+                        if receive_task is not None:
+                            raw = await receive_task
+                            receive_task = None
+                        else:
+                            raw = await ws.receive_json()
+                        message = parse_client_message(raw)
                 except (ValidationError, ValueError, KeyError, TypeError):
                     await send_event(ws, ChatError(code="invalid_message"))
                     continue
@@ -579,12 +588,8 @@ def create_app(
                             except (ValidationError, ValueError, KeyError, TypeError):
                                 await send_event(ws, ChatError(code="invalid_message"))
                             else:
-                                if turn_id is None and isinstance(
-                                    active_message, (StopTurn, SteerTurn)
-                                ):
-                                    await send_event(
-                                        ws, ChatError(code="no_active_turn")
-                                    )
+                                if turn_id is None:
+                                    pending_message = active_message
                                 elif isinstance(active_message, ListCapabilities):
                                     await send_capabilities()
                                 elif isinstance(active_message, ReadUsage):

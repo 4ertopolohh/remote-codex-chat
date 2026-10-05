@@ -178,6 +178,25 @@ def test_prompt_streams_domain_events_and_completion(tmp_path: Path) -> None:
     assert bridge.prompts == ["hello"]
 
 
+def test_next_prompt_is_received_after_turn_completion(tmp_path: Path) -> None:
+    bridge = FakeBridge()
+    app = create_app(lambda: bridge, project=tmp_path, database=tmp_path / "conversations.sqlite3")
+    with TestClient(app) as client, client.websocket_connect("/ws/chat") as ws:
+        assert ws.receive_json() == {"type": "ready"}
+        ws.send_json({"type": "submit_prompt", "text": "first"})
+        assert ws.receive_json()["type"] == "conversation_selected"
+        assert ws.receive_json() == {"type": "turn_started"}
+        bridge.events.put_nowait(TurnCompleted("thread-1", "turn-1", "completed"))
+        assert ws.receive_json() == {"type": "turn_completed", "status": "completed"}
+        assert ws.receive_json()["type"] == "conversation_list"
+        ws.send_json({"type": "submit_prompt", "text": "second"})
+        deadline = time.monotonic() + 0.5
+        while len(bridge.prompts) < 2 and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert bridge.prompts == ["first", "second"]
+        assert ws.receive_json() == {"type": "turn_started"}
+
+
 def test_approval_is_visible_once_and_unknown_id_is_rejected(tmp_path: Path) -> None:
     bridge = FakeBridge()
     app = create_app(
