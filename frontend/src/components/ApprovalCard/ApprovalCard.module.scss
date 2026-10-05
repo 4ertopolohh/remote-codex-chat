@@ -1,5 +1,6 @@
-.card { min-width: 0; border: var(--stroke); border-radius: var(--radius-dialog); background: var(--color-canvas); padding: var(--space-4); display: grid; gap: var(--space-2); }
+.card { min-width: 0; border: var(--stroke); border-radius: var(--radius-dialog); background: var(--color-canvas); padding: var(--space-4); display: grid; gap: var(--space-2); overflow-wrap: anywhere; }
 .card h2, .card p { margin: 0; }
+.card h2 { font-family: var(--font-emphasis); font-size: 18px; }
 .card code { display: inline-block; max-width: 100%; overflow-wrap: anywhere; }
 .question { display: grid; gap: .35rem; }
 .acknowledge { display: flex; gap: .5rem; align-items: flex-start; font-size: 13px; }

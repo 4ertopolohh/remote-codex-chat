@@ -1,4 +1,6 @@
 @media (max-width: 480px) {
-  .controls { flex-wrap: nowrap; overflow-x: auto; padding-bottom: var(--space-1); }
-  .controls > * { flex: none; }
+  .controls { flex-wrap: wrap; }
+  .controls > label:first-child { flex: 1 1 100%; max-width: none; }
+  .controls > label:not(:first-child) { flex: 1 1 100px; max-width: none; }
+  .controls > button { flex: 1 1 100%; }
 }

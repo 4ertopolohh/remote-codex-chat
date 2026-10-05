@@ -1,5 +1,9 @@
-.button { min-height: 44px; padding: var(--space-2) var(--space-5); border: var(--stroke); border-radius: var(--radius-pill); background: var(--color-accent); color: var(--color-paper); font-family: var(--font-emphasis); font-size: 14px; transition: background-color var(--motion-relaxed), transform var(--motion-relaxed); }
-.button:hover:not(:disabled) { background: var(--color-accent-deep); transform: scale(.99); }
-.button:disabled { background: var(--color-ink); opacity: .38; }
-.secondary { background: var(--color-ink); }
-.secondary:hover:not(:disabled) { background: var(--color-muted); }
+.button { position: relative; isolation: isolate; min-height: 44px; padding: var(--space-2) var(--space-5); border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--color-paper); font-family: var(--font-emphasis); font-size: 14px; line-height: 1.15; text-align: center; }
+.button::before { content: ''; position: absolute; z-index: -1; inset: 0; border-radius: inherit; background: var(--color-accent); transform: translateZ(0); backface-visibility: hidden; transition: background-color var(--motion-relaxed), transform var(--motion-relaxed); }
+@media (hover: hover) and (pointer: fine) {
+  .button:hover:not(:disabled)::before { background: var(--color-ink); transform: translateZ(0) scale(.99); }
+  .secondary:hover:not(:disabled)::before { background: var(--color-muted); }
+}
+.button:active:not(:disabled)::before { transform: translateZ(0) scale(.99); }
+.button:disabled { opacity: .38; }
+.button:disabled::before, .secondary::before { background: var(--color-ink); }

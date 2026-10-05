@@ -1,5 +1,6 @@
 import type { CollaborationCapability, ModelCapability } from '../../chat/useChat'
 import { SelectControl } from '../SelectControl/SelectControl'
+import { ActionButton } from '../ActionButton/ActionButton'
 import styles from './ModelSelector.module.scss'
 import narrow from './ModelSelector480.module.scss'
 
@@ -24,6 +25,6 @@ export function ModelSelector({ models, collaborationModes, modelId, effort, mod
       {!!selected?.reasoning_efforts.length && <SelectControl label="Reasoning" value={effort ?? ''} options={selected.reasoning_efforts.map(value => ({ value, label: value }))} onChange={onEffort} disabled={disabled} />}
     </>}
     {models.length > 0 && collaborationModes.some(item => item.mode !== 'default') && <SelectControl label="Mode" value={mode ?? ''} options={[{ value: '', label: 'Default' }, ...collaborationModes.filter(item => item.mode !== 'default').map(item => ({ value: item.mode, label: item.name }))]} onChange={value => onMode(value || null)} disabled={disabled} />}
-    <button type="button" onClick={onRefresh} disabled={disabled}>Refresh models</button>
+    <ActionButton tone="secondary" onClick={onRefresh} disabled={disabled}>Refresh models</ActionButton>
   </div>
 }

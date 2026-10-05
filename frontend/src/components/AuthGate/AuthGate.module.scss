@@ -1,11 +1,11 @@
 .page { min-height: 100dvh; display: grid; place-items: center; padding: max(var(--space-5), env(safe-area-inset-top)) var(--space-5) max(var(--space-5), env(safe-area-inset-bottom)); background: var(--color-canvas); }
-.card { width: min(100%, 420px); padding: clamp(24px, 5vw, 40px); background: var(--color-paper); border: var(--stroke); border-radius: var(--radius-dialog); }
+.card { width: min(100%, 420px); padding: clamp(24px, 5vw, 40px); background: var(--color-paper); border: var(--stroke); border-radius: var(--radius-panel); }
 .mark { display: grid; place-items: center; width: 48px; height: 48px; margin-bottom: var(--space-6); border-radius: 50%; background: var(--color-ink); color: var(--color-paper); font-size: 28px; }
 .eyebrow { color: var(--color-muted); font-family: var(--font-emphasis); font-size: 11px; letter-spacing: .1em; }
 .card h1 { margin: var(--space-2) 0; font-family: var(--font-display); font-size: clamp(32px, 8vw, 44px); }
 .card p { color: var(--color-muted); }
 .card form { display: grid; gap: var(--space-3); margin-top: var(--space-6); }
-.card label { font-size: 13px; font-weight: 700; }
+.card label { font-family: var(--font-emphasis); font-size: 13px; }
 .card input { width: 100%; min-height: 48px; padding: 0 var(--space-4); border: var(--stroke); border-radius: var(--radius-field); background: white; color: var(--color-ink); font: inherit; }
 .card input:focus-visible, .submit:focus-visible { outline: 2px solid var(--color-accent-deep); outline-offset: 2px; }
 .submit { width: 100%; min-height: 48px; }

@@ -12,9 +12,9 @@
   --color-success: #70e9a4;
   --color-warning: #f7a829;
 
-  --font-body: 'Actay', sans-serif;
-  --font-emphasis: 'Actay Wide', 'Actay', sans-serif;
-  --font-display: 'AKONY', 'Actay Wide', sans-serif;
+  --font-body: 'Actay', Arial, sans-serif;
+  --font-emphasis: 'Actay Wide', 'Actay', Arial, sans-serif;
+  --font-display: 'AKONY', 'Actay Wide', Arial, sans-serif;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -38,7 +38,7 @@
   --motion-standard: 350ms ease;
   --motion-relaxed: 500ms ease;
 
-  // Starter module compatibility until RC-009 adopts semantic properties.
+  // Compatibility properties used by existing component modules.
   --border: var(--color-border);
   --muted: var(--color-muted);
 }

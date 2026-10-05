@@ -2,3 +2,7 @@
 .status::before { content: ''; width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--color-warning); }
 .status[data-status='connected']::before { background: var(--color-success); }
 .status[data-status='disconnected']::before { background: var(--color-danger); }
+@media (max-width: 480px) {
+  .status { width: 28px; height: 28px; padding: 0; justify-content: center; overflow: hidden; font-size: 0; }
+  .status::before { width: 10px; height: 10px; }
+}

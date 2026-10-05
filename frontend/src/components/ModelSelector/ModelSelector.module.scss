@@ -1,2 +1,5 @@
 .controls { display: flex; align-items: end; flex-wrap: wrap; gap: var(--space-2); min-width: 0; }
-.controls button { min-height: 44px; padding: var(--space-2) var(--space-4); border: var(--stroke); border-radius: var(--radius-pill); background: var(--color-paper); color: var(--color-ink); font-size: 12px; }
+.controls > * { min-width: 0; max-width: 100%; }
+.controls button { flex: 0 0 auto; font-size: 12px; }
+.controls > label:first-child { flex: 1 1 170px; max-width: 280px; }
+.controls > label:not(:first-child) { flex: 1 1 110px; max-width: 170px; }

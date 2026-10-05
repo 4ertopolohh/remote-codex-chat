@@ -4,17 +4,18 @@
 .brandMark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 50%; background: var(--color-ink); color: var(--color-paper); font-size: 26px; }
 .brand strong { display: block; font-family: var(--font-emphasis); font-size: 18px; line-height: 1.1; }
 .brand small { display: block; color: var(--color-muted); font-size: 12px; }
-.headerActions { display: flex; align-items: center; gap: var(--space-3); }
+.headerActions { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
 .historyToggle, .closeHistory { display: none; }
-.sidebar { display: flex; flex-direction: column; gap: var(--space-5); min-width: 0; min-height: 0; padding: var(--space-5); background: var(--color-panel); border: var(--stroke); border-radius: var(--radius-dialog); overflow-y: auto; }
+.sidebar { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; min-height: 0; padding: var(--space-5); background: var(--glass-light); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); border: var(--stroke); border-radius: var(--radius-panel); overflow-y: auto; overscroll-behavior: contain; }
 .sidebarHeading { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-emphasis); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--color-muted); }
 .workspace { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--color-canvas); border: var(--stroke); border-radius: var(--radius-panel); }
-.conversationHeader { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 72px; padding: var(--space-3) var(--space-5); background: var(--color-paper); border-bottom: var(--stroke); }
+.conversationHeader { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 72px; padding: var(--space-3) var(--space-5); margin: var(--space-3) var(--space-3) 0; background: var(--color-paper); border: var(--stroke); border-radius: var(--radius-pill); }
 .conversationTitle { min-width: 0; }
 .eyebrow { display: block; color: var(--color-muted); font-family: var(--font-emphasis); font-size: 10px; letter-spacing: .1em; }
-.conversationTitle h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 2px 0 0; font-size: 18px; font-weight: 700; }
+.conversationTitle h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 2px 0 0; font-family: var(--font-emphasis); font-size: 18px; font-weight: 700; }
 .projectName { max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: var(--space-2) var(--space-4); border: var(--stroke); border-radius: var(--radius-pill); font-size: 12px; }
-.connectionNotice { padding: var(--space-2) var(--space-5); background: var(--color-warning); font-size: 13px; }
-.bottomDock { display: flex; flex-direction: column; gap: var(--space-2); flex: none; min-width: 0; max-height: 68%; overflow-y: auto; padding: var(--space-3) var(--space-5) max(var(--space-3), env(safe-area-inset-bottom)); background: var(--color-paper); border-top: var(--stroke); }
+.connectionNotice { padding: var(--space-2) var(--space-5); background: color-mix(in srgb, var(--color-warning) 24%, var(--color-paper)); border-bottom: var(--stroke); font-size: 13px; overflow-wrap: anywhere; }
+.connectionNotice button { min-height: 40px; margin-left: var(--space-2); padding: var(--space-1) var(--space-3); border: var(--stroke); border-radius: var(--radius-pill); background: var(--color-paper); color: var(--color-ink); }
+.bottomDock { display: flex; flex-direction: column; gap: var(--space-2); flex: none; min-width: 0; max-height: 68%; overflow-y: auto; padding: var(--space-3) var(--space-5) max(var(--space-3), env(safe-area-inset-bottom)); background: var(--color-paper); border-top: var(--stroke); border-radius: var(--radius-dialog) var(--radius-dialog) 0 0; }
 .requests { display: grid; gap: var(--space-2); max-height: min(40dvh, 360px); overflow-y: auto; }
 .backdrop { display: none; }
