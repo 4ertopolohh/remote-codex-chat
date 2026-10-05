@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
+from conftest import AuthenticatedTestClient as TestClient
 from starlette.websockets import WebSocketDisconnect
 from test_chat_websocket import FakeBridge
 from test_conversation_recovery import FakeBridge as RecoveryBridge

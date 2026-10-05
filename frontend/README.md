@@ -1,7 +1,10 @@
 # Local chat
 
-Start the backend from `backend/` with `./.venv/Scripts/python.exe -m uvicorn app:app --host 127.0.0.1 --port 8000`.
-Start the frontend from `frontend/` with `npm run dev`. Open the Vite URL shown in the terminal. Vite proxies `/ws/chat` to the backend.
+Generate a password hash privately from `backend/` with `uv run python scripts/hash_password.py`. The script prompts twice and prints only an Argon2id hash. Set that output as `RC_PASSWORD_HASH` in the backend process environment (for example, a private untracked `.env` loaded by your process manager). Never put the plaintext password in a command, tracked file, or browser build. The backend refuses to start without the hash.
+
+For local development, set `RC_PUBLIC_ORIGIN=http://localhost:5173` (the default), start the backend from `backend/` with `uv run uvicorn app:app --host 127.0.0.1 --port 8000`, then start the frontend from `frontend/` with `npm run dev`. Open the exact Vite origin configured in `RC_PUBLIC_ORIGIN`. Vite proxies `/auth` and `/ws` to the backend. If Vite chooses another port or you open `127.0.0.1` instead of `localhost`, update `RC_PUBLIC_ORIGIN` to match the browser origin exactly.
+
+For remote use, build the frontend with `npm run build` and set `RC_AUTH_MODE=remote`, `RC_PUBLIC_ORIGIN=https://your-chat-host.example`, and `RC_PASSWORD_HASH`. FastAPI serves the built frontend and API on one origin. The remote mode requires HTTPS at that public origin and a built `frontend/dist` (or `RC_FRONTEND_DIST`). Terminate TLS at a trusted tunnel or proxy and forward to FastAPI bound to `127.0.0.1`; do not expose port 8000 directly. Run one backend worker: the chat bridge and login throttle are process-local. Persist `RC_AUTH_DATABASE_PATH` (default `backend/data/auth.sqlite3`) securely alongside the conversation database. The local cookie is `rc_session` without `Secure` for HTTP development; remote mode uses `__Host-rc_session` with `Secure`. Both are `HttpOnly`, `SameSite=Strict`, host-only, and expire after seven days. Logout revokes the server session and closes its active chat socket. Protected HTTP mutations require exact Origin and CSRF token; WebSocket requires exact Origin and a valid session. No production CORS wildcard is enabled.
 
 The backend selects one local project. By default it uses this repository's root. Set `RC_PROJECT_PATH` in the backend environment to use another existing project directory. The browser never sends a filesystem path.
 

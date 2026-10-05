@@ -106,7 +106,9 @@ function isUsageMap(value: unknown): value is Record<string, UsageLimit> {
   return !!value && typeof value === 'object' && !Array.isArray(value) && Object.values(value).every(isUsageLimit)
 }
 
-export function useChat() {
+export function useChat(onAuthRequired?: () => void) {
+  const onAuthRequiredRef = useRef(onAuthRequired)
+  useEffect(() => { onAuthRequiredRef.current = onAuthRequired }, [onAuthRequired])
   const socket = useRef<WebSocket | null>(null)
   const selectedIdRef = useRef<string | null>(null)
   const selectionPendingRef = useRef(false)
@@ -280,8 +282,14 @@ export function useChat() {
           }
         }
       }
-      ws.onclose = () => {
+      ws.onclose = (event?: CloseEvent) => {
         if (disposed || socket.current !== ws) return
+        if (event?.code === 4401) { onAuthRequiredRef.current?.(); return }
+        if (event?.code === 1006 && onAuthRequiredRef.current) {
+          void fetch('/auth/session', { credentials: 'same-origin', cache: 'no-store' })
+            .then(response => { if (response.status === 401) onAuthRequiredRef.current?.() })
+            .catch(() => { /* Network recovery continues below. */ })
+        }
         setConnection('disconnected')
         setRequests(previous => previous.map(request => request.status === 'pending' ? { ...request, status: 'cancelled' } : request))
         setModels([])

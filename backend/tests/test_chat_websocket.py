@@ -4,7 +4,7 @@ import asyncio
 import time
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from conftest import AuthenticatedTestClient as TestClient
 
 from app import create_app
 from codex_bridge import (

@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import TypeAdapter, ValidationError
 
+from auth import SESSION_AGE, AuthService, AuthSettings
 from chat_protocol import (
     AgentStatus,
     AnswerApproval,
@@ -85,6 +88,7 @@ def create_app(
     project: Path | None = None,
     database: Path | None = None,
     experimental_features: bool | None = None,
+    auth_settings: AuthSettings | None = None,
 ) -> FastAPI:
     experimental = (
         os.environ.get("RC_EXPERIMENTAL_FEATURES") == "1"
@@ -106,6 +110,7 @@ def create_app(
             Path(__file__).resolve().parent / "data" / "conversations.sqlite3",
         )
     )
+    frontend_dist = Path(os.environ.get("RC_FRONTEND_DIST", Path(__file__).resolve().parents[1] / "frontend" / "dist"))
     store = ConversationStore(database_path)
     chat_active = False
     draining_tasks: set[asyncio.Task[object]] = set()
@@ -122,6 +127,11 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        auth = AuthService(auth_settings or AuthSettings.from_env())
+        if auth.settings.remote and not frontend_dist.is_dir():
+            raise ValueError("Remote mode requires a built frontend at RC_FRONTEND_DIST")
+        auth.initialize()
+        app.state.auth = auth
         store.initialize()
         bridge = (
             CodexBridge(experimental_features=experimental)
@@ -145,8 +155,64 @@ def create_app(
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    def same_origin(request: Request) -> bool:
+        return request.headers.get("origin") == request.app.state.auth.settings.origin
+
+    def require_session(request: Request) -> tuple[str, float]:
+        auth: AuthService = request.app.state.auth
+        session = auth.session(request.cookies.get(auth.settings.cookie_name))
+        if session is None:
+            raise HTTPException(status_code=401, detail="Unauthorized")
+        return session
+
+    @app.post("/auth/login")
+    async def login(request: Request) -> JSONResponse:
+        auth: AuthService = request.app.state.auth
+        if not same_origin(request) or request.headers.get("content-type", "").split(";", 1)[0].lower() != "application/json":
+            raise HTTPException(status_code=403, detail="Forbidden")
+        body = await request.body()
+        if len(body) > 4096:
+            raise HTTPException(status_code=413, detail="Request too large")
+        try:
+            payload = await request.json()
+        except ValueError:
+            payload = None
+        password = payload.get("password") if isinstance(payload, dict) else None
+        if not isinstance(password, str):
+            password = ""
+        result = auth.login(password, request.client.host if request.client else "unknown")
+        if result is None:
+            return JSONResponse({"detail": "Invalid credentials"}, status_code=401, headers={"Cache-Control": "no-store"})
+        token, csrf = result
+        response = JSONResponse({"csrf": csrf}, headers={"Cache-Control": "no-store"})
+        response.set_cookie(auth.settings.cookie_name, token, max_age=SESSION_AGE, httponly=True, secure=auth.settings.remote, samesite="strict", path="/")
+        return response
+
+    @app.get("/auth/session")
+    async def session(request: Request) -> JSONResponse:
+        csrf, _ = require_session(request)
+        return JSONResponse({"csrf": csrf}, headers={"Cache-Control": "no-store"})
+
+    @app.post("/auth/logout")
+    async def logout(request: Request) -> JSONResponse:
+        csrf, _ = require_session(request)
+        if not same_origin(request) or request.headers.get("x-csrf-token") != csrf:
+            raise HTTPException(status_code=403, detail="Forbidden")
+        auth: AuthService = request.app.state.auth
+        token = request.cookies[auth.settings.cookie_name]
+        sockets = auth.logout(token)
+        for socket in sockets:
+            try:
+                await socket.close(code=4401)
+            except RuntimeError:
+                pass
+        response = JSONResponse({"status": "logged_out"}, headers={"Cache-Control": "no-store"})
+        response.delete_cookie(auth.settings.cookie_name, path="/", secure=auth.settings.remote, httponly=True, samesite="strict")
+        return response
+
     @app.get("/ready")
-    async def ready() -> JSONResponse:
+    async def ready(request: Request) -> JSONResponse:
+        require_session(request)
         if app.state.bridge.ready:
             return JSONResponse({"status": "ready"})
         return JSONResponse({"status": "unavailable"}, status_code=503)
@@ -154,11 +220,26 @@ def create_app(
     @app.websocket("/ws/chat")
     async def chat(ws: WebSocket) -> None:
         nonlocal chat_active
+        auth: AuthService = app.state.auth
+        token = ws.cookies.get(auth.settings.cookie_name)
+        session = auth.session(token)
+        if ws.headers.get("origin") != auth.settings.origin or session is None:
+            await ws.close(code=4401 if session is None else 1008)
+            return
         if chat_active:
             await ws.close(code=1008, reason="Chat is already in use")
             return
         chat_active = True
         await ws.accept()
+        assert token is not None
+        auth.register_socket(token, ws)
+        async def expire_socket() -> None:
+            await asyncio.sleep(max(0, session[1] - time.time()))
+            try:
+                await ws.close(code=4401)
+            except RuntimeError:
+                pass
+        expiry_task = asyncio.create_task(expire_socket())
         bridge = app.state.bridge
         project_id = projects.default_id
         conversation = None
@@ -584,6 +665,8 @@ def create_app(
         except WebSocketDisconnect:
             pass
         finally:
+            expiry_task.cancel()
+            auth.unregister_socket(token, ws)
             if usage_task is not None and not usage_task.done():
                 usage_task.cancel()
             if usage_updates_task is not None and not usage_updates_task.done():
@@ -620,6 +703,8 @@ def create_app(
             else:
                 chat_active = False
 
+    if frontend_dist.is_dir():
+        app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
     return app
 
 

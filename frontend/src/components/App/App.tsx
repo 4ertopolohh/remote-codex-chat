@@ -15,8 +15,8 @@ import responsive from './App768.module.scss'
 import narrow from './App480.module.scss'
 import short from './AppHeight480.module.scss'
 
-export function App() {
-  const chat = useChat()
+export function App({ onLogout, onAuthRequired, authError }: { onLogout?: () => void; onAuthRequired?: () => void; authError?: string | null }) {
+  const chat = useChat(onAuthRequired)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [isNarrow, setIsNarrow] = useState(() => window.matchMedia?.('(max-width: 768px)').matches ?? false)
   const historyTrigger = useRef<HTMLButtonElement>(null)
@@ -81,6 +81,7 @@ export function App() {
       <div className={`${styles.brand} ${responsive.brand}`}><span className={styles.brandMark} aria-hidden="true">✳</span><div><strong>Codex</strong><small>Remote workspace</small></div></div>
       <div className={styles.headerActions}>
         <ConnectionStatus status={chat.connection} />
+        {onLogout && <button className={styles.signOut} type="button" onClick={onLogout}>Sign out</button>}
         <button ref={historyTrigger} className={`${styles.historyToggle} ${responsive.historyToggle}`} type="button" aria-expanded={historyOpen} aria-controls="conversation-history" onClick={() => setHistoryOpen(value => !value)}>History</button>
       </div>
     </header>
@@ -98,6 +99,7 @@ export function App() {
         <div className={styles.conversationTitle}><span className={styles.eyebrow}>CONVERSATION</span><h1>{chat.selecting ? 'Opening conversation…' : current?.title ?? 'New conversation'}</h1></div>
         <span className={`${styles.projectName} ${narrow.projectName}`}>{chat.projects.find(item => item.id === chat.selectedProjectId)?.name ?? 'No project'}</span>
       </div>
+      {authError && <div className={styles.connectionNotice} role="alert">{authError}</div>}
       {chat.connection !== 'connected' && <div className={styles.connectionNotice} role="status">{chat.connection === 'connecting' ? 'Connecting to Codex…' : chat.connection === 'reconnecting' ? 'Reconnecting to Codex…' : 'Connection lost. Reconnecting…'}</div>}
       <Conversation conversationId={chat.selectedId} messages={chat.selecting ? [] : chat.messages} loading={chat.selecting} />
       <div ref={bottomDock} className={`${styles.bottomDock} ${narrow.bottomDock} ${short.bottomDock}`}>

@@ -1,5 +1,20 @@
 # Backend architecture
 
+## Authentication (RC-011)
+
+`backend/auth.py` owns single-user password verification and server-side sessions. The
+operator supplies only an Argon2id hash through `RC_PASSWORD_HASH`. Login creates a
+random opaque ID in an `HttpOnly` cookie; SQLite stores its digest, a separate CSRF
+token, and an absolute expiry. `/auth/session` gives the browser only the CSRF token,
+and `/auth/logout` revokes the record and closes any active chat socket for it.
+`/health` remains public; `/ready` and `/ws/chat` require a valid session. The WebSocket
+also requires an exact configured `Origin` before it is accepted, and an expiry timer
+ends long-lived connections. State-changing HTTP routes require exact `Origin`; logout
+also requires the session's CSRF token. CORS is not enabled. The backend serves the
+built frontend from the same origin when present; remote mode requires that build and
+HTTPS. See `frontend/README.md` for setup and the local/remote cookie distinction.
+
+
 The browser will talk to FastAPI. FastAPI owns one `CodexBridge` for its application
 lifetime. `CodexBridge` owns a local `codex app-server` child process and uses the
 validated RC-001 newline-delimited stdio transport. The PoC CLI imports that same
