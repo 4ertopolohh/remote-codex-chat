@@ -9,7 +9,7 @@
 .sidebar { display: flex; flex-direction: column; gap: var(--space-4); min-width: 0; min-height: 0; padding: var(--space-5); background: var(--glass-light); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur); border: var(--stroke); border-radius: var(--radius-panel); overflow-y: auto; overscroll-behavior: contain; }
 .sidebarHeading { display: flex; align-items: center; justify-content: space-between; font-family: var(--font-emphasis); font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--color-muted); }
 .workspace { min-width: 0; min-height: 0; display: flex; flex-direction: column; overflow: hidden; background: var(--color-canvas); border: var(--stroke); border-radius: var(--radius-panel); }
-.conversationHeader { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 72px; padding: var(--space-3) var(--space-5); margin: var(--space-3) var(--space-3) 0; background: var(--color-paper); border: var(--stroke); border-radius: var(--radius-pill); }
+.conversationHeader { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: 72px; padding: var(--space-3) var(--space-5); margin: var(--space-3) var(--space-3) 0; background: var(--color-paper); border: var(--stroke); border-radius: 40px; }
 .conversationTitle { min-width: 0; }
 .eyebrow { display: block; color: var(--color-muted); font-family: var(--font-emphasis); font-size: 10px; letter-spacing: .1em; }
 .conversationTitle h1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin: 2px 0 0; font-family: var(--font-emphasis); font-size: 18px; font-weight: 700; }
