@@ -26,7 +26,12 @@ export function AuthGate() {
     try {
       const response = await fetch('/auth/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) })
       if (!response.ok) {
-        setAuth({ status: 'signed-out', csrf: null, error: response.status === 401 ? 'Неверный пароль. Попробуйте ещё раз.' : 'Не удалось войти. Попробуйте ещё раз.' })
+        const error = response.status === 401
+          ? 'Неверный пароль. Попробуйте ещё раз.'
+          : response.status === 403
+            ? 'Адрес сайта не совпадает с настроенным адресом сервера. Проверьте Origin в конфигурации.'
+            : 'Не удалось войти. Попробуйте ещё раз.'
+        setAuth({ status: 'signed-out', csrf: null, error })
         return
       }
       const session = await response.json() as { csrf: string }

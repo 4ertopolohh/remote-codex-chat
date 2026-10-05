@@ -151,7 +151,7 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if persistent is not None:
             mode = os.environ.get("RC_AUTH_MODE", persistent.mode)
-            origin = os.environ.get("RC_PUBLIC_ORIGIN", persistent.origin)
+            origin = AuthSettings.normalize_origin(os.environ.get("RC_PUBLIC_ORIGIN", persistent.origin))
             AuthSettings.validate(persistent.password_hash, mode, origin)
             settings = AuthSettings(persistent.password_hash, origin, mode == "remote",
                                     Path(os.environ.get("RC_AUTH_DATABASE_PATH", Path(__file__).resolve().parent / "data" / "auth.sqlite3")))

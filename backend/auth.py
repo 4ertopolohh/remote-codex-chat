@@ -32,9 +32,33 @@ class AuthSettings:
         password_hash = os.environ.get("RC_PASSWORD_HASH", "")
         mode = os.environ.get("RC_AUTH_MODE", "local")
         origin = os.environ.get("RC_PUBLIC_ORIGIN", "" if mode == "remote" else "http://localhost:5173")
+        origin = cls.normalize_origin(origin)
         cls.validate(password_hash, mode, origin)
         return cls(password_hash, origin, mode == "remote",
                    Path(os.environ.get("RC_AUTH_DATABASE_PATH", Path(__file__).resolve().parent / "data" / "auth.sqlite3")))
+
+    @staticmethod
+    def normalize_origin(origin: str) -> str:
+        parsed = urlsplit(origin)
+        if (
+            not parsed.hostname
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or parsed.username
+            or parsed.password
+        ):
+            raise ValueError("Origin must be an exact scheme and host, without a path")
+        try:
+            hostname = parsed.hostname.encode("idna").decode("ascii").lower()
+            port = parsed.port
+        except (UnicodeError, ValueError) as exc:
+            raise ValueError("Origin contains an invalid hostname or port") from exc
+        if ":" in hostname:
+            hostname = f"[{hostname}]"
+        default_port = 443 if parsed.scheme.lower() == "https" else 80
+        port_suffix = f":{port}" if port is not None and port != default_port else ""
+        return f"{parsed.scheme.lower()}://{hostname}{port_suffix}"
 
     @staticmethod
     def validate(password_hash: str, mode: str, origin: str) -> None:

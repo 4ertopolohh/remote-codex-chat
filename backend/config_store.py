@@ -6,6 +6,7 @@ import os
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from auth import AuthSettings
 from projects import Project, ProjectAllowlist
@@ -58,6 +59,12 @@ class ConfigStore:
         return config
 
     def bootstrap(self, config: Configuration) -> None:
+        config = Configuration(
+            config.password_hash,
+            config.mode,
+            AuthSettings.normalize_origin(config.origin),
+            config.projects,
+        )
         config.validate()
         self.initialize()
         with sqlite3.connect(self.path) as db:
@@ -76,6 +83,19 @@ class ConfigStore:
         AuthSettings.validate(password_hash, config.mode, config.origin)
         with sqlite3.connect(self.path) as db:
             db.execute("UPDATE settings SET value = ? WHERE key = 'password_hash'", (password_hash,))
+
+    def set_origin(self, origin: str) -> str:
+        config = self.load()
+        if config is None:
+            raise ValueError("Run init first")
+        mode = "remote" if urlsplit(origin).scheme == "https" else "local"
+        origin = AuthSettings.normalize_origin(origin)
+        AuthSettings.validate(config.password_hash, mode, origin)
+        with sqlite3.connect(self.path) as db:
+            db.execute("BEGIN IMMEDIATE")
+            db.execute("UPDATE settings SET value = ? WHERE key = 'mode'", (mode,))
+            db.execute("UPDATE settings SET value = ? WHERE key = 'origin'", (origin,))
+        return mode
 
     def add_project(self, project: Project) -> None:
         config = self.load()

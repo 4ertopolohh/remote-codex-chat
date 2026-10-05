@@ -31,8 +31,8 @@ def project_prompt() -> Project:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("command", choices=["init", "list", "set-password", "add-project", "remove-project"])
-    parser.add_argument("project_id", nargs="?")
+    parser.add_argument("command", choices=["init", "list", "set-password", "set-origin", "add-project", "remove-project"])
+    parser.add_argument("value", nargs="?", help="Origin for set-origin or project ID for remove-project")
     args = parser.parse_args()
     store = ConfigStore()
     if args.command == "init":
@@ -56,13 +56,18 @@ def main() -> None:
     elif args.command == "set-password":
         store.set_password(password_hash())
         print("Password updated. Restart the backend to load it.")
+    elif args.command == "set-origin":
+        if not args.value:
+            parser.error("set-origin requires an exact origin, for example https://chat.example.com")
+        mode = store.set_origin(args.value)
+        print(f"Origin saved in {mode} mode. Restart the backend to load it.")
     elif args.command == "add-project":
         store.add_project(project_prompt())
         print("Project added. Restart the backend to load it.")
     else:
-        if not args.project_id:
+        if not args.value:
             parser.error("remove-project requires a project ID")
-        store.remove_project(args.project_id)
+        store.remove_project(args.value)
         print("Project removed. Restart the backend to load it.")
 
 

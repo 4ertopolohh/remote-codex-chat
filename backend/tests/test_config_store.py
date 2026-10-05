@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from argon2 import PasswordHasher
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 from test_chat_websocket import FakeBridge
 
 from app import create_app
@@ -93,3 +94,52 @@ def test_remove_then_add_keeps_project_order(tmp_path: Path) -> None:
     store.remove_project("two")
     store.add_project(Project("four", "four", tmp_path / "four"))
     assert [project.id for project in store.load().projects] == ["one", "three", "four"]
+
+
+def test_set_https_origin_persists_remote_mode_and_secure_login(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    origin = "https://gleefully-uptown-roach.cloudpub.ru"
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    store = ConfigStore(tmp_path / "config.sqlite3")
+    store.bootstrap(Configuration(
+        PasswordHasher().hash("remote-password"), "local", "http://127.0.0.1:8765",
+        [Project("project", "Project", project_path)],
+    ))
+
+    assert store.set_origin("HTTPS://GLEEFULLY-UPTOWN-ROACH.CLOUDPUB.RU:443/") == "remote"
+    assert store.load().origin == origin
+    assert store.load().mode == "remote"
+    monkeypatch.setenv("RC_CONFIG_DATABASE_PATH", str(store.path))
+    monkeypatch.delenv("RC_AUTH_MODE", raising=False)
+    monkeypatch.delenv("RC_PUBLIC_ORIGIN", raising=False)
+    frontend = tmp_path / "frontend"
+    frontend.mkdir()
+    (frontend / "index.html").write_text("<html></html>")
+    monkeypatch.setenv("RC_FRONTEND_DIST", str(frontend))
+
+    with TestClient(create_app(lambda: FakeBridge(), database=tmp_path / "conversations.sqlite3")) as client:
+        response = client.post("/auth/login", json={"password": "remote-password"},
+                               headers={"Origin": origin})
+        assert response.status_code == 200
+        assert "Secure" in response.headers["set-cookie"]
+        session_cookie = response.headers["set-cookie"].split(";", 1)[0]
+        assert client.post("/auth/login", json={"password": "remote-password"},
+                           headers={"Origin": "https://other.example"}).status_code == 403
+        with pytest.raises(WebSocketDisconnect) as disconnected, client.websocket_connect(
+            "/ws/chat", headers={"Origin": "https://other.example", "Cookie": session_cookie}
+        ):
+            pass
+        assert disconnected.value.code == 1008
+
+
+def test_set_origin_rejects_non_loopback_local_origin(tmp_path: Path) -> None:
+    store = ConfigStore(tmp_path / "config.sqlite3")
+    store.bootstrap(Configuration(
+        PasswordHasher().hash("password"), "local", "http://127.0.0.1:8765",
+        [Project("project", "Project", tmp_path)],
+    ))
+    with pytest.raises(ValueError, match="loopback"):
+        store.set_origin("http://public.example")
+    assert store.load().origin == "http://127.0.0.1:8765"

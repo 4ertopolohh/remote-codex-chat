@@ -47,6 +47,7 @@ uv run --no-sync uvicorn app:app --host 127.0.0.1 --port 8765
 
 Из `backend/` используйте `uv run --no-sync python scripts/configure.py list`,
 `uv run --no-sync python scripts/configure.py set-password`,
+`uv run --no-sync python scripts/configure.py set-origin <origin>`,
 `uv run --no-sync python scripts/configure.py add-project` и
 `uv run --no-sync python scripts/configure.py remove-project <id>`.
 После изменений перезапустите backend. Удаление проекта не удаляет историю чатов.
@@ -55,8 +56,8 @@ uv run --no-sync uvicorn app:app --host 127.0.0.1 --port 8765
 установки без `RC_PUBLIC_ORIGIN` сохраняется прежний Origin `http://localhost:5173`.
 Для Vite задайте
 `RC_PUBLIC_ORIGIN=http://localhost:5173` на время запуска backend. Для удалённого
-доступа настройте режим `remote` и точный HTTPS Origin при `init`; удалённому режиму
-нужна сборка frontend. `RC_AUTH_MODE` и `RC_PUBLIC_ORIGIN` можно временно переопределить
+доступа задайте точный HTTPS Origin командой `set-origin`; она сохраняет remote режим.
+Удалённому режиму нужна сборка frontend. `RC_AUTH_MODE` и `RC_PUBLIC_ORIGIN` можно временно переопределить
 в окружении. `RC_CONFIG_DATABASE_PATH` задаёт другое расположение базы конфигурации.
 Делайте резервные копии `backend/data/` и ограничьте доступ к нему текущим пользователем.
 Если запуск сообщает о неполной конфигурации, восстановите базу из резервной копии;
@@ -76,9 +77,20 @@ uv run --no-sync uvicorn app:app --host 127.0.0.1 --port 8000
 
 ## Удалённый доступ
 
-При `init` выберите `remote` и точный HTTPS Origin туннеля. Соберите frontend заранее,
-затем запускайте backend на loopback интерфейсе и публикуйте этот адрес через туннель.
+Для CloudPub настройте сохранённый Origin из `backend/`:
+
+```powershell
+uv run --no-sync python scripts/configure.py set-origin https://gleefully-uptown-roach.cloudpub.ru
+```
+
+Соберите frontend один раз (`cd ..\frontend; npm ci; npm run build`), затем из `backend/`
+запустите FastAPI на `127.0.0.1:8765`. В настройке публикации CloudPub укажите локальную
+службу `http://127.0.0.1:8765` и открывайте сайт по точному HTTPS адресу выше. Команда
+сохраняет Origin и включает режим `remote`, в котором session cookie получает `Secure`.
+Если ранее вручную задавали `RC_AUTH_MODE` или `RC_PUBLIC_ORIGIN`, удалите эти переменные
+из текущего окна PowerShell перед запуском, чтобы применились сохранённые значения.
 Не публикуйте `codex app-server`. Храните файл конфигурации и сессии в закрытом каталоге.
+
 ## Проверки и устранение неполадок
 
 Запустите те же проверки, что и в [GitHub Actions](.github/workflows/checks.yml):
