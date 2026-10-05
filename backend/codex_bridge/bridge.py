@@ -143,6 +143,7 @@ class CodexBridge:
         approval_timeout: float = 120.0,
     ):
         self._client = AppServerClient(command, request_timeout=request_timeout)
+        self._request_timeout = request_timeout
         self._events: asyncio.Queue[BridgeEvent | BridgeError] = asyncio.Queue()
         self._usage_updates: asyncio.Queue[UsageChanged] = asyncio.Queue()
         self._pump: asyncio.Task[None] | None = None
@@ -150,6 +151,7 @@ class CodexBridge:
         self._experimental_features = experimental_features
         self._approval_timeout = approval_timeout
         self._pending_requests: dict[str, _PendingServerRequest] = {}
+        self._owned_threads: dict[str, Path] = {}
 
     @property
     def user_input_supported(self) -> bool:
@@ -184,6 +186,7 @@ class CodexBridge:
 
     async def close(self) -> None:
         self._ready = False
+        self._owned_threads.clear()
         await self.cancel_pending()
         await self._client.close()
         if self._pump is not None:
@@ -199,7 +202,9 @@ class CodexBridge:
         if approval_policy is not None:
             params["approvalPolicy"] = approval_policy
         result = await self._request("thread/start", params)
-        return self._nested_id(result, "thread")
+        thread_id = self._nested_id(result, "thread")
+        self._owned_threads[thread_id] = project.resolve()
+        return thread_id
 
     async def resume_thread(self, thread_id: str, project: Path) -> str:
         if not project.is_dir():
@@ -216,7 +221,33 @@ class CodexBridge:
             or Path(actual_cwd).resolve() != trusted_cwd
         ):
             raise OperationFailed("Resumed thread outside configured project")
-        return self._nested_id(result, "thread")
+        resumed_id = self._nested_id(result, "thread")
+        self._owned_threads[resumed_id] = trusted_cwd
+        return resumed_id
+
+    async def restore_thread(
+        self, thread_id: str, project: Path
+    ) -> tuple[str, list[dict[str, str]]]:
+        """Read unowned history separately before claiming its writer."""
+        owned_project = self._owned_threads.get(thread_id)
+        if owned_project is not None:
+            if owned_project != project.resolve():
+                raise OperationFailed("Thread belongs to another project")
+            return thread_id, await self.read_messages(thread_id)
+        reader = CodexBridge(
+            command=self._client.command,
+            request_timeout=min(self._request_timeout, 10.0),
+            experimental_features=self._experimental_features,
+        )
+        try:
+            await reader.start()
+            resumed_id = await reader.resume_thread(thread_id, project)
+            if resumed_id != thread_id:
+                raise OperationFailed("Resumed a different Codex thread")
+            messages = await reader.read_messages(thread_id)
+        finally:
+            await reader.close()
+        return await self.resume_thread(thread_id, project), messages
 
     async def read_messages(self, thread_id: str) -> list[dict[str, str]]:
         """Project persisted Codex turns into the chat's text-only presentation."""

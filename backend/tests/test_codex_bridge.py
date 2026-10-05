@@ -521,6 +521,79 @@ sys.stdin.readline()
 
 
 @pytest.mark.asyncio
+async def test_failed_history_read_does_not_block_new_threads(tmp_path: Path) -> None:
+    marker = tmp_path / "main-started"
+    script = tmp_path / "history_server.py"
+    script.write_text(
+        HANDSHAKE
+        + f"\nfrom pathlib import Path\nmarker = Path({str(marker)!r})\n"
+        + """
+if marker.exists():
+    resume = read()
+    assert resume['method'] == 'thread/resume'
+    send({'id': resume['id'], 'result': {
+        'thread': {'id': resume['params']['threadId']},
+        'cwd': resume['params']['cwd'],
+    }})
+    history = read()
+    assert history['method'] == 'thread/read'
+    sys.stdin.readline()
+else:
+    marker.write_text('ready')
+    created = read()
+    assert created['method'] == 'thread/start'
+    send({'id': created['id'], 'result': {'thread': {'id': 'new-thread'}}})
+    sys.stdin.readline()
+""",
+        encoding="utf-8",
+    )
+    bridge = CodexBridge(command=(sys.executable, "-S", str(script)), request_timeout=0.2)
+    await bridge.start()
+    try:
+        with pytest.raises(OperationFailed):
+            await bridge.restore_thread("stalled-thread", tmp_path)
+        assert await bridge.start_thread(tmp_path) == "new-thread"
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_restore_thread_owned_by_current_bridge(tmp_path: Path) -> None:
+    marker = tmp_path / "main-started"
+    script = tmp_path / "owned_thread_server.py"
+    script.write_text(
+        HANDSHAKE
+        + f"\nfrom pathlib import Path\nmarker = Path({str(marker)!r})\n"
+        + """
+if marker.exists():
+    unexpected = read()
+    send({'id': unexpected['id'], 'error': {'code': -32600, 'message': 'active writer'}})
+else:
+    marker.write_text('ready')
+    created = read()
+    assert created['method'] == 'thread/start'
+    send({'id': created['id'], 'result': {'thread': {'id': 'owned-thread'}}})
+    history = read()
+    assert history['method'] == 'thread/read'
+    send({'id': history['id'], 'result': {'thread': {'turns': [
+        {'items': [{'type': 'userMessage', 'content': [{'type': 'text', 'text': 'hello'}]}]},
+    ]}}})
+    sys.stdin.readline()
+""",
+        encoding="utf-8",
+    )
+    bridge = CodexBridge(command=(sys.executable, "-S", str(script)), request_timeout=0.2)
+    await bridge.start()
+    try:
+        assert await bridge.start_thread(tmp_path) == "owned-thread"
+        assert await bridge.restore_thread("owned-thread", tmp_path) == (
+            "owned-thread", [{"role": "user", "text": "hello"}]
+        )
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
 async def test_invalid_json_after_handshake_fails_event_stream(tmp_path: Path) -> None:
     marker = tmp_path / "child_closed.txt"
     bridge = await bridge_for(

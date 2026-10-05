@@ -39,6 +39,12 @@ class FakeBridge:
     async def read_messages(self, thread_id: str) -> list[dict[str, str]]:
         return [{"role": "user", "text": "earlier prompt"}] if self.turns else []
 
+    async def restore_thread(
+        self, thread_id: str, project: Path
+    ) -> tuple[str, list[dict[str, str]]]:
+        resumed_id = await self.resume_thread(thread_id, project)
+        return resumed_id, await self.read_messages(thread_id)
+
     async def start_turn(
         self, thread_id: str, prompt: str, **options: str | None
     ) -> str:

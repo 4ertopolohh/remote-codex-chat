@@ -376,6 +376,11 @@ def test_app_server_crash_while_draining_releases_chat_for_reconnect(tmp_path: P
 
 def test_replayed_submission_id_does_not_start_a_second_turn_after_restart(tmp_path: Path) -> None:
     class ResumableBridge(FakeBridge):
+        async def restore_thread(
+            self, thread_id: str, project: Path
+        ) -> tuple[str, list[dict[str, str]]]:
+            return thread_id, [{"role": "user", "text": "once"}]
+
         async def resume_thread(self, thread_id: str, project: Path) -> str:
             return thread_id
 

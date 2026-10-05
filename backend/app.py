@@ -412,13 +412,12 @@ def create_app(
                             continue
                         try:
                             trusted_project = projects.resolve(project_id)
-                            resumed_id = await bridge.resume_thread(
+                            resumed_id, history = await bridge.restore_thread(
                                 selected.thread_id, trusted_project
                             )
                             if resumed_id != selected.thread_id:
                                 raise ValueError("Resumed a different Codex thread")
-                            history = await bridge.read_messages(selected.thread_id)
-                        except (OperationFailed, ValueError):
+                        except (BridgeError, ValueError):
                             await send_event(ws, ChatError(code="thread_unavailable"))
                             continue
                         conversation = selected
