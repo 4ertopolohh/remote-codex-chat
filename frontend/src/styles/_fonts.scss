@@ -1,8 +1,31 @@
-// Enable these faces after reuse rights for these local WOFF2 files are confirmed.
-// Expected files: assets/fonts/actay/Actay-Regular.woff2,
-// assets/fonts/actay/ActayWide-Bold.woff2, assets/fonts/akony/AKONY.woff2.
-// The reference also registers ActayCondensed-Thin.woff2 at weight 100; this UI
-// has no condensed role. Keeping inactive faces here avoids requests for missing files.
-// @font-face { font-family: 'Actay'; src: url('../assets/fonts/actay/Actay-Regular.woff2') format('woff2'); font-style: normal; font-weight: 400; font-display: swap; }
-// @font-face { font-family: 'Actay Wide'; src: url('../assets/fonts/actay/ActayWide-Bold.woff2') format('woff2'); font-style: normal; font-weight: 700; font-display: swap; }
-// @font-face { font-family: 'AKONY'; src: url('../assets/fonts/akony/AKONY.woff2') format('woff2'); font-style: normal; font-weight: 400; font-display: swap; }
+@font-face {
+  font-family: 'Actay';
+  src: url('../assets/fonts/actay/Actay-Regular.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Actay Condensed';
+  src: url('../assets/fonts/actay/ActayCondensed-Thin.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 100;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Actay Wide';
+  src: url('../assets/fonts/actay/ActayWide-Bold.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'AKONY';
+  src: url('../assets/fonts/akony/AKONY.woff2') format('woff2');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}

@@ -9,7 +9,7 @@ body {
   line-height: 1.4;
 }
 button, input, select, textarea { font: inherit; }
-button { cursor: pointer; }
+button { cursor: pointer; font-family: var(--font-emphasis); }
 button:disabled { cursor: not-allowed; opacity: .65; }
 button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
 :is(button, input, select, textarea) { accent-color: var(--color-accent-deep); }
@@ -17,6 +17,7 @@ button, a, input, select, textarea { -webkit-tap-highlight-color: transparent; }
   outline: 2px solid var(--color-accent-deep);
   outline-offset: 2px;
 }
+h1 { font-family: var(--font-display); }
 ::selection { background: var(--color-accent); color: var(--color-ink); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
