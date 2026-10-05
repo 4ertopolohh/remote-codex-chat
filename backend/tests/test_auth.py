@@ -112,6 +112,10 @@ def test_active_websocket_closes_when_session_expires(tmp_path: Path) -> None:
 
 
 def test_remote_cookie_is_secure_and_configuration_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    frontend_dist = tmp_path / "frontend"
+    frontend_dist.mkdir()
+    (frontend_dist / "index.html").write_text("<html></html>")
+    monkeypatch.setenv("RC_FRONTEND_DIST", str(frontend_dist))
     remote = AuthSettings(TEST_HASH, "https://chat.example.test", True, tmp_path / "remote.sqlite3")
     with make_client(tmp_path, remote) as client:
         response = client.post("/auth/login", json={"password": TEST_PASSWORD}, headers={"Origin": remote.origin})
