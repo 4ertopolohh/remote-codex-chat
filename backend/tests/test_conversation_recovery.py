@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from pathlib import Path
 
 from conftest import AuthenticatedTestClient as TestClient
 
 from app import create_app
 from codex_bridge import ModelCapability, OperationFailed
+from conversation_store import ConversationStore
 
 
 class FakeBridge:
@@ -54,6 +56,25 @@ class FakeBridge:
 
     async def cancel_pending(self) -> None:
         pass
+
+
+def test_existing_conversation_database_migrates_without_losing_history(tmp_path: Path) -> None:
+    database = tmp_path / "conversations.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute("""CREATE TABLE conversations (
+            id TEXT PRIMARY KEY, project_id TEXT NOT NULL, thread_id TEXT NOT NULL UNIQUE,
+            title TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+        )""")
+        connection.execute(
+            "INSERT INTO conversations VALUES (?, ?, ?, ?, ?, ?)",
+            ("saved", "default", "thread-1", "Earlier", "2026-01-01", "2026-01-01"),
+        )
+        connection.execute("PRAGMA user_version = 1")
+    store = ConversationStore(database)
+    store.initialize()
+    assert store.get("saved", "default").title == "Earlier"
+    assert store.claim_submission("request-1", "saved")
+    assert not store.claim_submission("request-1", "saved")
 
 
 def test_conversation_survives_backend_restart_and_resumes(tmp_path: Path) -> None:

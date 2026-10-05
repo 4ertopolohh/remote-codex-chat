@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 
 type Connection = 'connecting' | 'connected' | 'disconnected' | 'reconnecting'
-type Turn = 'idle' | 'running' | 'completed' | 'failed' | 'interrupted'
+type Turn = 'idle' | 'running' | 'completed' | 'failed' | 'interrupted' | 'unknown'
 export type Message = { role: 'user' | 'assistant'; text: string }
 export type ConversationInfo = { id: string; project_id: string; title: string; created_at: string; updated_at: string }
 export type ProjectInfo = { id: string; name: string }
 export type ModelCapability = { id: string; model: string; display_name: string; reasoning_efforts: string[]; default_reasoning_effort: string | null; is_default: boolean }
 export type CollaborationCapability = { name: string; mode: string; model: string | null; reasoning_effort: string | null }
 export type InputQuestion = { id: string; header: string; question: string; options: { label: string; description: string }[] | null; is_other: boolean; is_secret: boolean }
-export type PendingRequest = { id: string; kind: 'command' | 'file_change' | 'user_input'; details: { command?: string; reason?: string; kind?: string; questions?: InputQuestion[] }; status: 'pending' | 'completed' | 'expired' | 'cancelled' }
+export type PendingRequest = { id: string; kind: 'command' | 'file_change' | 'user_input'; details: { command?: string; reason?: string; kind?: string; questions?: InputQuestion[] }; status: 'pending' | 'completed' | 'expired' | 'cancelled' | 'unknown' }
 export type UsageWindow = { used_percent?: number; window_duration_mins?: number; resets_at?: number }
 export type UsageLimit = { limit_id?: string; limit_name?: string; primary?: UsageWindow; secondary?: UsageWindow }
 export type Usage = { status: 'available' | 'unsupported' | 'error'; rate_limits: UsageLimit | null; rate_limits_by_id: Record<string, UsageLimit>; ordinary_usage_allowed: boolean | null }
@@ -35,6 +35,22 @@ const savedConversationKey = 'remote-codex-chat.conversation-id'
 const savedProjectKey = 'remote-codex-chat.project-id'
 const savedModelKey = 'remote-codex-chat.model-id'
 const savedEffortKey = 'remote-codex-chat.reasoning-effort'
+const uncertainTurnKey = 'remote-codex-chat.uncertain-turn-conversation'
+
+function uncertainConversations(): string[] {
+  try {
+    const stored: unknown = JSON.parse(window.sessionStorage.getItem(uncertainTurnKey) ?? '[]')
+    return Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string') : []
+  } catch { return [] }
+}
+
+function hasUncertainTurn(id: string): boolean { return uncertainConversations().includes(id) }
+function markUncertainTurn(id: string): void {
+  window.sessionStorage.setItem(uncertainTurnKey, JSON.stringify([...new Set([...uncertainConversations(), id])]))
+}
+function clearUncertainTurn(id: string): void {
+  window.sessionStorage.setItem(uncertainTurnKey, JSON.stringify(uncertainConversations().filter(item => item !== id)))
+}
 
 function isConversation(value: unknown): value is ConversationInfo {
   if (!value || typeof value !== 'object') return false
@@ -139,8 +155,10 @@ export function useChat(onAuthRequired?: () => void) {
     const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
     let disposed = false
     let retry: ReturnType<typeof setTimeout> | undefined
+    let attempts = 0
     function connect() {
       if (disposed) return
+      clearTimeout(retry)
       setConnection(socket.current ? 'reconnecting' : 'connecting')
       const ws = new WebSocket(`${scheme}//${window.location.host}/ws/chat`)
       socket.current = ws
@@ -150,6 +168,7 @@ export function useChat(onAuthRequired?: () => void) {
         if (!event) return
         switch (event.type) {
           case 'ready':
+            attempts = 0
             setConnection('connected')
             setError(null)
             ws.send(JSON.stringify({ type: 'list_projects' }))
@@ -239,8 +258,8 @@ export function useChat(onAuthRequired?: () => void) {
             selectionPendingRef.current = false
             setSelecting(false)
             setMessages(event.messages)
-            setTurn('idle')
-            setAgentStatus('idle')
+            setTurn(hasUncertainTurn(event.conversation.id) ? 'unknown' : 'idle')
+            setAgentStatus(hasUncertainTurn(event.conversation.id) ? 'unknown' : 'idle')
             setError(null)
             ws.send(JSON.stringify({ type: 'list_conversations' }))
             break
@@ -254,14 +273,16 @@ export function useChat(onAuthRequired?: () => void) {
             })
             break
           case 'agent_status': setAgentStatus(event.status); break
-          case 'turn_completed': setTurn(event.status); setActiveTurn(false); setStopPending(false); setAgentStatus(event.status); ws.send(JSON.stringify({ type: 'read_usage' })); break
+          case 'turn_completed': if (selectedIdRef.current) clearUncertainTurn(selectedIdRef.current); setTurn(event.status); setActiveTurn(false); setStopPending(false); setAgentStatus(event.status); ws.send(JSON.stringify({ type: 'read_usage' })); break
           case 'error': {
             setError(event.code)
             if (event.code === 'stop_failed') setStopPending(false)
             if (event.code === 'codex_failure') { setActiveTurn(false); setStopPending(false) }
-            if (pendingPromptRef.current !== null) {
+            const rejectedPrompt = ['model_unavailable', 'reasoning_unavailable', 'collaboration_unavailable', 'project_unavailable', 'invalid_message'].includes(event.code)
+            if (pendingPromptRef.current !== null && rejectedPrompt) {
               const pending = pendingPromptRef.current
               pendingPromptRef.current = null
+              if (selectedIdRef.current) clearUncertainTurn(selectedIdRef.current)
               setMessages(previous => previous.at(-1)?.role === 'user' && previous.at(-1)?.text === pending ? previous.slice(0, -1) : previous)
               setTurn('idle')
               setActiveTurn(false)
@@ -277,7 +298,7 @@ export function useChat(onAuthRequired?: () => void) {
               setMessages([])
               window.localStorage.removeItem(savedConversationKey)
             }
-            if (!['invalid_message', 'turn_in_progress', 'no_active_turn', 'steer_failed', 'stop_failed', 'model_unavailable', 'reasoning_unavailable', 'collaboration_unavailable'].includes(event.code)) setTurn('failed')
+            if (!['invalid_message', 'turn_in_progress', 'no_active_turn', 'steer_failed', 'stop_failed', 'model_unavailable', 'reasoning_unavailable', 'collaboration_unavailable'].includes(event.code)) setTurn(selectedIdRef.current && hasUncertainTurn(selectedIdRef.current) ? 'unknown' : 'failed')
             break
           }
         }
@@ -291,19 +312,22 @@ export function useChat(onAuthRequired?: () => void) {
             .catch(() => { /* Network recovery continues below. */ })
         }
         setConnection('disconnected')
-        setRequests(previous => previous.map(request => request.status === 'pending' ? { ...request, status: 'cancelled' } : request))
+        setRequests(previous => previous.map(request => request.status === 'pending' ? { ...request, status: 'unknown' } : request))
         setModels([])
         setUsage(null)
         setCollaborationModes([])
         setStopPending(false)
         setActiveTurn(false)
-        setTurn(current => current === 'running' ? 'failed' : current)
+        setTurn(current => current === 'running' ? 'unknown' : current)
+        setAgentStatus(current => current === 'starting' || current === 'running' ? 'unknown' : current)
+        pendingPromptRef.current = null
         selectionPendingRef.current = false
         projectSelectionPendingRef.current = false
         setSelecting(false)
         selectedIdRef.current = null
         setSelectedId(null)
-        retry = setTimeout(connect, 500)
+        attempts += 1
+        retry = setTimeout(connect, Math.min(30000, 500 * 2 ** Math.min(attempts - 1, 6)))
       }
       ws.onerror = () => { if (socket.current === ws) setError('connection_failed') }
     }
@@ -317,11 +341,12 @@ export function useChat(onAuthRequired?: () => void) {
   }, [])
 
   function send(text: string): boolean {
-    if (socket.current?.readyState !== WebSocket.OPEN || connection !== 'connected' || !selectedId || selectionPendingRef.current || turn === 'running' || !text.trim()) return false
-    const command: Record<string, string> = { type: 'submit_prompt', text }
+    if (socket.current?.readyState !== WebSocket.OPEN || connection !== 'connected' || !selectedId || selectionPendingRef.current || turn === 'running' || turn === 'unknown' || !text.trim()) return false
+    const command: Record<string, string> = { type: 'submit_prompt', text, request_id: crypto.randomUUID() }
     if (selectedModelId) command.model_id = selectedModelId
     if (selectedEffort) command.reasoning_effort = selectedEffort
     if (selectedMode) command.collaboration_mode = selectedMode
+    markUncertainTurn(selectedId)
     socket.current.send(JSON.stringify(command))
     pendingPromptRef.current = text
     setMessages(previous => [...previous, { role: 'user', text }])
@@ -413,6 +438,14 @@ export function useChat(onAuthRequired?: () => void) {
     socket.current.send(JSON.stringify({ type: 'select_project', id }))
   }
 
+  function acknowledgeUnknown(): void {
+    if (connection !== 'connected' || turn !== 'unknown' || !selectedId || !hasUncertainTurn(selectedId)) return
+    clearUncertainTurn(selectedId)
+    setTurn('idle')
+    setAgentStatus('idle')
+    setError(null)
+  }
+
   function answerApproval(id: string, decision: 'accept' | 'decline'): void {
     if (socket.current?.readyState !== WebSocket.OPEN || !requests.some(request => request.id === id && request.status === 'pending' && request.kind !== 'user_input')) return
     socket.current.send(JSON.stringify({ type: 'answer_approval', id, decision }))
@@ -423,5 +456,5 @@ export function useChat(onAuthRequired?: () => void) {
     socket.current.send(JSON.stringify({ type: 'answer_user_input', id, answers }))
   }
 
-  return { connection, turn, activeTurn, agentStatus, messages, conversations, projects, selectedProjectId, selectedId, selecting, error, models, collaborationModes, selectedModelId, selectedEffort, selectedMode, stopPending, requests, userInput, usage, answerApproval, answerUserInput, send, steer, stop, selectModel, selectEffort, selectMode, refreshCapabilities, refreshUsage, newConversation, selectConversation, selectProject }
+  return { connection, turn, activeTurn, agentStatus, messages, conversations, projects, selectedProjectId, selectedId, selecting, error, models, collaborationModes, selectedModelId, selectedEffort, selectedMode, stopPending, requests, userInput, usage, answerApproval, answerUserInput, send, steer, stop, selectModel, selectEffort, selectMode, refreshCapabilities, refreshUsage, newConversation, selectConversation, selectProject, acknowledgeUnknown }
 }

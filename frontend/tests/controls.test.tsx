@@ -17,7 +17,7 @@ class FakeSocket {
   commands(): object[] { return this.sent.map(value => JSON.parse(value) as object) }
 }
 
-beforeEach(() => { window.localStorage.clear(); FakeSocket.instances = []; vi.stubGlobal('WebSocket', FakeSocket) })
+beforeEach(() => { window.localStorage.clear(); window.sessionStorage.clear(); FakeSocket.instances = []; vi.stubGlobal('WebSocket', FakeSocket) })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
 test('runtime catalog drives model and reasoning, while active turn offers stop and steer', () => {
@@ -35,7 +35,7 @@ test('runtime catalog drives model and reasoning, while active turn offers stop 
   expect((screen.getByLabelText('Reasoning') as HTMLSelectElement).value).toBe('medium')
   fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'hello' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
-  expect(socket.commands()).toContainEqual({ type: 'submit_prompt', text: 'hello', model_id: 'second', reasoning_effort: 'medium' })
+  expect(socket.commands()).toContainEqual(expect.objectContaining({ type: 'submit_prompt', text: 'hello', model_id: 'second', reasoning_effort: 'medium', request_id: expect.any(String) }))
   expect(screen.getByRole('button', { name: 'Stop' }).hasAttribute('disabled')).toBe(true)
   socket.emit({ type: 'turn_started' })
   fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'change direction' } })
@@ -71,6 +71,75 @@ test('a lost connection has distinct offline and reconnecting states', () => {
     act(() => vi.advanceTimersByTime(500))
     expect(FakeSocket.instances).toHaveLength(2)
     expect(screen.getByText('Reconnecting')).toBeTruthy()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('lost streaming turn remains unknown after reconnect and reload without resubmission', () => {
+  vi.useFakeTimers()
+  try {
+    const conversation = { id: 'c1', project_id: 'default', title: 'Chat', created_at: 'now', updated_at: 'now' }
+    const page = render(<App />)
+    const first = FakeSocket.instances[0]
+    first.emit({ type: 'ready' })
+    first.emit({ type: 'conversation_selected', conversation, messages: [] })
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'check status' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    first.emit({ type: 'turn_started' })
+    act(() => first.close())
+    expect(screen.getByText('Turn: unknown')).toBeTruthy()
+    act(() => vi.advanceTimersByTime(500))
+    const second = FakeSocket.instances[1]
+    second.emit({ type: 'ready' })
+    second.emit({ type: 'conversation_selected', conversation, messages: [{ role: 'user', text: 'check status' }] })
+    expect(screen.getByText('Turn: unknown')).toBeTruthy()
+    expect(second.commands().filter(command => 'type' in command && command.type === 'submit_prompt')).toHaveLength(0)
+    page.unmount()
+    render(<App />)
+    const third = FakeSocket.instances[2]
+    third.emit({ type: 'ready' })
+    third.emit({ type: 'conversation_selected', conversation, messages: [{ role: 'user', text: 'check status' }] })
+    expect(screen.getByText('Turn: unknown')).toBeTruthy()
+    expect(third.commands().filter(command => 'type' in command && command.type === 'submit_prompt')).toHaveLength(0)
+    expect(screen.getByRole('button', { name: 'Send' }).hasAttribute('disabled')).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'I reviewed the conversation' }))
+    expect(screen.getByText('Turn: idle')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'new question' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    expect(third.commands()).toContainEqual(expect.objectContaining({ type: 'submit_prompt', text: 'new question', request_id: expect.any(String) }))
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('approval outcome is not claimed after a lost connection', () => {
+  render(<App />)
+  const socket = FakeSocket.instances[0]
+  socket.emit({ type: 'ready' })
+  socket.emit({ type: 'pending_request', id: 'approval-1', kind: 'command', details: { command: 'echo safe' } })
+  act(() => socket.close())
+  expect(screen.getByRole('heading', { name: 'Request unknown' })).toBeTruthy()
+  expect(screen.getByText('Connection lost; the request outcome is unknown. Review the conversation before taking further action.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Approve' }).hasAttribute('disabled')).toBe(true)
+})
+
+test('repeated connection failures back off and a ready connection resets the delay', () => {
+  vi.useFakeTimers()
+  try {
+    render(<App />)
+    act(() => FakeSocket.instances[0].close())
+    act(() => vi.advanceTimersByTime(500))
+    expect(FakeSocket.instances).toHaveLength(2)
+    act(() => FakeSocket.instances[1].close())
+    act(() => vi.advanceTimersByTime(999))
+    expect(FakeSocket.instances).toHaveLength(2)
+    act(() => vi.advanceTimersByTime(1))
+    expect(FakeSocket.instances).toHaveLength(3)
+    FakeSocket.instances[2].emit({ type: 'ready' })
+    act(() => FakeSocket.instances[2].close())
+    act(() => vi.advanceTimersByTime(500))
+    expect(FakeSocket.instances).toHaveLength(4)
   } finally {
     vi.useRealTimers()
   }
@@ -162,7 +231,7 @@ test('discovered experimental mode is shown and sent for a new turn', () => {
   fireEvent.change(screen.getByLabelText('Mode'), { target: { value: 'plan' } })
   fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'make a plan' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
-  expect(socket.commands()).toContainEqual({ type: 'submit_prompt', text: 'make a plan', model_id: 'first', reasoning_effort: 'medium', collaboration_mode: 'plan' })
+  expect(socket.commands()).toContainEqual(expect.objectContaining({ type: 'submit_prompt', text: 'make a plan', model_id: 'first', reasoning_effort: 'medium', collaboration_mode: 'plan', request_id: expect.any(String) }))
 })
 
 test('mode preset updates displayed reasoning and a failed stop restores controls', () => {

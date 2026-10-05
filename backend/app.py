@@ -120,13 +120,18 @@ def create_app(
 
     async def drain_interrupted_turn(bridge: CodexBridge, thread_id: str, active_turn_id: str) -> None:
         nonlocal chat_active
-        while True:
-            event = await bridge.next_event()
-            if isinstance(event, TurnCompleted) and (
-                event.thread_id, event.turn_id
-            ) == (thread_id, active_turn_id):
-                chat_active = False
-                return
+        try:
+            while True:
+                event = await bridge.next_event()
+                if isinstance(event, TurnCompleted) and (
+                    event.thread_id, event.turn_id
+                ) == (thread_id, active_turn_id):
+                    return
+        except BridgeError:
+            # A terminated app-server cannot emit the completion event.
+            pass
+        finally:
+            chat_active = False
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -475,6 +480,11 @@ def create_app(
                                 conversation=conversation.public(), messages=[]
                             ),
                         )
+                    if message.request_id and not store.claim_submission(
+                        message.request_id, conversation.id
+                    ):
+                        await send_event(ws, ChatError(code="duplicate_submission"))
+                        continue
                     turn_id = await bridge.start_turn(
                         conversation.thread_id,
                         message.text,

@@ -102,12 +102,13 @@ export function App({ onLogout, onAuthRequired, authError }: { onLogout?: () => 
       </div>
       {authError && <div className={styles.connectionNotice} role="alert">{authError}</div>}
       {chat.connection !== 'connected' && <div className={styles.connectionNotice} role="status">{chat.connection === 'connecting' ? 'Connecting to Codex…' : chat.connection === 'reconnecting' ? 'Reconnecting to Codex…' : 'Connection lost. Reconnecting…'}</div>}
+      {chat.turn === 'unknown' && <div className={styles.connectionNotice} role="alert">The previous turn's outcome is unknown. Review the conversation before continuing. The prompt will not be sent again automatically. {chat.connection === 'connected' && chat.selectedId && <button type="button" onClick={chat.acknowledgeUnknown}>I reviewed the conversation</button>}</div>}
       <Conversation conversationId={chat.selectedId} messages={chat.selecting ? [] : chat.messages} loading={chat.selecting} />
       <div ref={bottomDock} className={`${styles.bottomDock} ${narrow.bottomDock} ${short.bottomDock}`}>
         {chat.requests.length > 0 && <div className={styles.requests} aria-label="Requests needing attention">{chat.requests.map(request => <ApprovalCard key={request.id} request={request} onApproval={chat.answerApproval} onInput={chat.answerUserInput} />)}</div>}
         <TurnStatus turn={chat.turn} agentStatus={chat.agentStatus} error={chat.error} />
         <ModelSelector models={chat.models} collaborationModes={chat.collaborationModes} modelId={chat.selectedModelId} effort={chat.selectedEffort} mode={chat.selectedMode} disabled={controlsDisabled} onModel={chat.selectModel} onEffort={chat.selectEffort} onMode={chat.selectMode} onRefresh={chat.refreshCapabilities} />
-        <MessageInput onSend={chat.send} onSteer={chat.steer} onStop={chat.stop} running={chat.turn === 'running'} activeTurn={chat.activeTurn} stopPending={chat.stopPending} disabled={chat.connection !== 'connected' || !chat.selectedId || chat.selecting} />
+        <MessageInput onSend={chat.send} onSteer={chat.steer} onStop={chat.stop} running={chat.turn === 'running'} activeTurn={chat.activeTurn} stopPending={chat.stopPending} disabled={chat.connection !== 'connected' || !chat.selectedId || chat.selecting || chat.turn === 'unknown'} />
       </div>
     </section>
   </main>

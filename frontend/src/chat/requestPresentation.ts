@@ -6,6 +6,7 @@ export function requestTitle(request: PendingRequest): string {
 }
 
 export function requestOutcomeText(request: PendingRequest): string | null {
+  if (request.status === 'unknown') return 'Connection lost; the request outcome is unknown. Review the conversation before taking further action.'
   if (request.status === 'completed') return 'Response sent.'
   if (request.status === 'expired') return request.kind === 'user_input' ? 'Timed out without an answer.' : 'Timed out; approval was declined.'
   if (request.status === 'cancelled') return request.kind === 'user_input' ? 'Cancelled without an answer.' : 'Cancelled; approval was declined.'

@@ -10,6 +10,7 @@ class SubmitPrompt(BaseModel):
 
     type: Literal["submit_prompt"]
     text: StrictStr = Field(min_length=1, max_length=10000)
+    request_id: StrictStr | None = Field(default=None, min_length=1, max_length=128)
     model_id: StrictStr | None = None
     reasoning_effort: StrictStr | None = None
     collaboration_mode: StrictStr | None = None
@@ -158,6 +159,7 @@ class ChatError(BaseModel):
         "request_unavailable",
         "project_not_found",
         "project_unavailable",
+        "duplicate_submission",
     ]
 
 

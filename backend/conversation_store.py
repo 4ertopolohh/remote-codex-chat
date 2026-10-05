@@ -34,7 +34,7 @@ class ConversationStore:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if version > 1:
+            if version > 2:
                 raise RuntimeError(
                     f"Unsupported conversation schema version: {version}"
                 )
@@ -50,6 +50,24 @@ class ConversationStore:
                     )
                 """)
                 connection.execute("PRAGMA user_version = 1")
+            if version < 2:
+                connection.execute("""
+                    CREATE TABLE IF NOT EXISTS submissions (
+                        request_id TEXT PRIMARY KEY,
+                        conversation_id TEXT NOT NULL,
+                        created_at TEXT NOT NULL
+                    )
+                """)
+                connection.execute("PRAGMA user_version = 2")
+
+    def claim_submission(self, request_id: str, conversation_id: str) -> bool:
+        """Reserve a browser submission before calling the non-idempotent bridge."""
+        with self._connect() as connection:
+            result = connection.execute(
+                "INSERT OR IGNORE INTO submissions VALUES (?, ?, ?)",
+                (request_id, conversation_id, datetime.now(UTC).isoformat()),
+            )
+            return result.rowcount == 1
 
     def create(self, project_id: str, thread_id: str) -> Conversation:
         now = datetime.now(UTC).isoformat()

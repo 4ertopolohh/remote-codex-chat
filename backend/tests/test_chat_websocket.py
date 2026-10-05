@@ -4,7 +4,9 @@ import asyncio
 import time
 from pathlib import Path
 
+import pytest
 from conftest import AuthenticatedTestClient as TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from app import create_app
 from codex_bridge import (
@@ -342,6 +344,69 @@ def test_disconnect_interrupts_active_turn(tmp_path: Path) -> None:
                 break
             time.sleep(0.01)
         assert bridge.interrupted == [("thread-1", "turn-1")]
+
+
+def test_app_server_crash_while_draining_releases_chat_for_reconnect(tmp_path: Path) -> None:
+    class CrashingBridge(FakeBridge):
+        async def next_event(self) -> object:
+            event = await self.events.get()
+            if isinstance(event, Exception):
+                raise event
+            return event
+
+    bridge = CrashingBridge()
+    app = create_app(lambda: bridge, project=tmp_path, database=tmp_path / "chat.sqlite3")
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()
+            ws.send_json({"type": "submit_prompt", "text": "may have run"})
+            ws.receive_json()
+            assert ws.receive_json() == {"type": "turn_started"}
+        bridge.events.put_nowait(OperationFailed("app-server terminated"))
+        for _ in range(100):
+            try:
+                with client.websocket_connect("/ws/chat") as reconnected:
+                    assert reconnected.receive_json() == {"type": "ready"}
+                break
+            except WebSocketDisconnect:
+                time.sleep(0.01)
+        else:
+            pytest.fail("chat remained locked after app-server crash")
+
+
+def test_replayed_submission_id_does_not_start_a_second_turn_after_restart(tmp_path: Path) -> None:
+    class ResumableBridge(FakeBridge):
+        async def resume_thread(self, thread_id: str, project: Path) -> str:
+            return thread_id
+
+        async def read_messages(self, thread_id: str) -> list[dict[str, str]]:
+            return [{"role": "user", "text": "once"}]
+
+    database = tmp_path / "chat.sqlite3"
+    first_bridge = ResumableBridge()
+    with (
+        TestClient(create_app(lambda: first_bridge, project=tmp_path, database=database)) as client,
+        client.websocket_connect("/ws/chat") as ws,
+    ):
+            ws.receive_json()
+            ws.send_json({"type": "new_conversation"})
+            conversation_id = ws.receive_json()["conversation"]["id"]
+            ws.send_json({"type": "submit_prompt", "text": "once", "request_id": "request-1"})
+            assert ws.receive_json() == {"type": "turn_started"}
+            first_bridge.events.put_nowait(TurnCompleted("thread-1", "turn-1", "completed"))
+            assert ws.receive_json() == {"type": "turn_completed", "status": "completed"}
+    second_bridge = ResumableBridge()
+    with (
+        TestClient(create_app(lambda: second_bridge, project=tmp_path, database=database)) as client,
+        client.websocket_connect("/ws/chat") as ws,
+    ):
+            ws.receive_json()
+            ws.send_json({"type": "select_conversation", "id": conversation_id})
+            assert ws.receive_json()["type"] == "conversation_selected"
+            ws.send_json({"type": "submit_prompt", "text": "once", "request_id": "request-1"})
+            assert ws.receive_json() == {"type": "error", "code": "duplicate_submission"}
+    assert first_bridge.prompts == ["once"]
+    assert second_bridge.prompts == []
 
 
 def test_unavailable_bridge_does_not_report_ready(tmp_path: Path) -> None:

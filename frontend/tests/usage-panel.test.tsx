@@ -45,7 +45,7 @@ test('usage errors remain local and chat remains usable', () => {
   socket.emit({ type: 'conversation_selected', conversation: { id: 'c1', project_id: 'default', title: 'Chat', created_at: 'now', updated_at: 'now' }, messages: [] })
   fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'hello' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send' }))
-  expect(socket.commands()).toContainEqual({ type: 'submit_prompt', text: 'hello' })
+  expect(socket.commands()).toContainEqual(expect.objectContaining({ type: 'submit_prompt', text: 'hello', request_id: expect.any(String) }))
 })
 
 test('sparse runtime updates keep known windows and unsupported runtime is explicit', () => {
