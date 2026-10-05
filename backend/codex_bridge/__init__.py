@@ -13,6 +13,7 @@ from .bridge import (
     ServerTerminated,
     ThreadStatusChanged,
     TurnCompleted,
+    UsageChanged,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "ServerTerminated",
     "ThreadStatusChanged",
     "TurnCompleted",
+    "UsageChanged",
 ]

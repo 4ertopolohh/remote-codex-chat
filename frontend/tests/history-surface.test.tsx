@@ -50,7 +50,7 @@ test('Tab stays inside the open phone history', () => {
   fireEvent.click(screen.getByRole('button', { name: 'History', exact: true }))
   const history = document.getElementById('conversation-history')!
   const close = within(history).getByRole('button', { name: 'Close history' })
-  const last = within(history).getByRole('button', { name: 'New conversation' })
+  const last = within(history).getByRole('button', { name: 'Refresh' })
   last.focus()
   fireEvent.keyDown(document, { key: 'Tab' })
   expect(document.activeElement).toBe(close)

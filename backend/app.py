@@ -9,6 +9,10 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
 
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
+from pydantic import TypeAdapter, ValidationError
+
 from chat_protocol import (
     AgentStatus,
     AnswerApproval,
@@ -26,6 +30,7 @@ from chat_protocol import (
     PendingRequest,
     ProjectList,
     ProjectSelected,
+    ReadUsage,
     Ready,
     RequestOutcome,
     SelectConversation,
@@ -37,6 +42,8 @@ from chat_protocol import (
     SubmitPrompt,
     TurnFinished,
     TurnStarted,
+    Usage,
+    UsageUpdate,
 )
 from codex_bridge import (
     AgentMessageDelta,
@@ -49,12 +56,10 @@ from codex_bridge import (
     RequestPending,
     ThreadStatusChanged,
     TurnCompleted,
+    UsageChanged,
 )
 from conversation_store import ConversationStore
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
 from projects import Project, ProjectAllowlist, ProjectUnavailable
-from pydantic import TypeAdapter, ValidationError
 
 _client_message_adapter = TypeAdapter(ClientMessage)
 
@@ -163,6 +168,7 @@ def create_app(
         visible_requests: set[str] = set()
         receive_task: asyncio.Task[object] | None = None
         event_task: asyncio.Task[object] | None = None
+        usage_task: asyncio.Task[None] | None = None
 
         async def discover_models() -> tuple[ModelCapability, ...]:
             try:
@@ -191,6 +197,19 @@ def create_app(
                     else "unsupported",
                 ),
             )
+
+        async def send_usage() -> None:
+            try:
+                snapshot = await bridge.read_usage()
+                await send_event(ws, Usage(**snapshot))
+            except BridgeError:
+                await send_event(ws, Usage(status="error"))
+
+        def start_usage_read() -> None:
+            nonlocal usage_task
+            if usage_task is None or usage_task.done():
+                usage_task = asyncio.create_task(send_usage())
+                usage_task.add_done_callback(observe_background_task)
 
         try:
             if not bridge.ready:
@@ -234,6 +253,9 @@ def create_app(
                         continue
                     if isinstance(message, ListCapabilities):
                         await send_capabilities()
+                        continue
+                    if isinstance(message, ReadUsage):
+                        start_usage_read()
                         continue
                     if isinstance(message, (StopTurn, SteerTurn)):
                         await send_event(ws, ChatError(code="no_active_turn"))
@@ -394,6 +416,8 @@ def create_app(
                                 event.turn_id,
                             ) == (conversation.thread_id, turn_id):
                                 await send_event(ws, AssistantDelta(text=event.text))
+                            elif isinstance(event, UsageChanged):
+                                await send_event(ws, UsageUpdate(rate_limits=event.rate_limits))
                             elif (
                                 isinstance(event, ThreadStatusChanged)
                                 and event.thread_id == conversation.thread_id
@@ -474,6 +498,8 @@ def create_app(
                                     )
                                 elif isinstance(active_message, ListCapabilities):
                                     await send_capabilities()
+                                elif isinstance(active_message, ReadUsage):
+                                    start_usage_read()
                                 elif isinstance(
                                     active_message, (AnswerApproval, AnswerUserInput)
                                 ):
@@ -553,6 +579,8 @@ def create_app(
         except WebSocketDisconnect:
             pass
         finally:
+            if usage_task is not None and not usage_task.done():
+                usage_task.cancel()
             if event_task is not None and event_task.done() and turn_id is not None:
                 try:
                     pending_event = event_task.result()

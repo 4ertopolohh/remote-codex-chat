@@ -9,6 +9,7 @@ import { MessageInput } from '../MessageInput/MessageInput'
 import { ModelSelector } from '../ModelSelector/ModelSelector'
 import { ProjectSelector } from '../ProjectSelector/ProjectSelector'
 import { TurnStatus } from '../TurnStatus/TurnStatus'
+import { UsagePanel } from '../UsagePanel/UsagePanel'
 import styles from './App.module.scss'
 import responsive from './App768.module.scss'
 import narrow from './App480.module.scss'
@@ -88,6 +89,7 @@ export function App() {
       <div className={styles.sidebarHeading}><span>Workspace</span><button ref={historyClose} className={`${styles.closeHistory} ${responsive.closeHistory}`} type="button" onClick={closeHistory} aria-label="Close history">×</button></div>
       <ProjectSelector projects={chat.projects} selectedId={chat.selectedProjectId} disabled={controlsDisabled} onSelect={chat.selectProject} />
       <ConversationList conversations={chat.conversations} selectedId={chat.selectedId} disabled={controlsDisabled} onSelect={selectConversation} onNew={newConversation} />
+      <UsagePanel usage={chat.usage} connected={chat.connection === 'connected'} onRefresh={chat.refreshUsage} />
     </aside>
     {historyOpen && <button className={`${styles.backdrop} ${responsive.backdrop}`} type="button" tabIndex={-1} aria-hidden="true" onClick={closeHistory} />}
 

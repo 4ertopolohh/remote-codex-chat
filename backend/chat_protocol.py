@@ -20,6 +20,11 @@ class ListCapabilities(BaseModel):
     type: Literal["list_capabilities"]
 
 
+class ReadUsage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    type: Literal["read_usage"]
+
+
 class StopTurn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["stop_turn"]
@@ -87,6 +92,19 @@ class Capabilities(BaseModel):
     models: list[dict[str, object]]
     collaboration_modes: list[dict[str, object]]
     user_input: Literal["supported", "unsupported"] = "unsupported"
+
+
+class Usage(BaseModel):
+    type: Literal["usage"] = "usage"
+    status: Literal["available", "unsupported", "error"]
+    rate_limits: dict[str, object] | None = None
+    rate_limits_by_id: dict[str, dict[str, object]] = Field(default_factory=dict)
+    ordinary_usage_allowed: bool | None = None
+
+
+class UsageUpdate(BaseModel):
+    type: Literal["usage_update"] = "usage_update"
+    rate_limits: dict[str, object]
 
 
 class PendingRequest(BaseModel):
@@ -173,6 +191,7 @@ ClientMessage = (
     | ListConversations
     | SelectConversation
     | ListCapabilities
+    | ReadUsage
     | StopTurn
     | SteerTurn
     | AnswerApproval
@@ -182,6 +201,8 @@ ServerEvent = (
     Ready
     | TurnStarted
     | Capabilities
+    | Usage
+    | UsageUpdate
     | SteerAccepted
     | AssistantDelta
     | AgentStatus

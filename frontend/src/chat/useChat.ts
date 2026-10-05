@@ -9,10 +9,15 @@ export type ModelCapability = { id: string; model: string; display_name: string;
 export type CollaborationCapability = { name: string; mode: string; model: string | null; reasoning_effort: string | null }
 export type InputQuestion = { id: string; header: string; question: string; options: { label: string; description: string }[] | null; is_other: boolean; is_secret: boolean }
 export type PendingRequest = { id: string; kind: 'command' | 'file_change' | 'user_input'; details: { command?: string; reason?: string; kind?: string; questions?: InputQuestion[] }; status: 'pending' | 'completed' | 'expired' | 'cancelled' }
+export type UsageWindow = { used_percent?: number; window_duration_mins?: number; resets_at?: number }
+export type UsageLimit = { limit_id?: string; limit_name?: string; primary?: UsageWindow; secondary?: UsageWindow }
+export type Usage = { status: 'available' | 'unsupported' | 'error'; rate_limits: UsageLimit | null; rate_limits_by_id: Record<string, UsageLimit>; ordinary_usage_allowed: boolean | null }
 
 type ServerEvent =
   | { type: 'ready' }
   | { type: 'capabilities'; models: ModelCapability[]; collaboration_modes: CollaborationCapability[]; user_input: 'supported' | 'unsupported' }
+  | { type: 'usage' } & Usage
+  | { type: 'usage_update'; rate_limits: UsageLimit }
   | { type: 'pending_request'; id: string; kind: PendingRequest['kind']; details: PendingRequest['details'] }
   | { type: 'request_outcome'; id: string; status: Exclude<PendingRequest['status'], 'pending'> }
   | { type: 'conversation_list'; conversations: ConversationInfo[] }
@@ -58,6 +63,8 @@ function parseEvent(data: string): ServerEvent | null {
     if (event.type === 'pending_request' && typeof event.id === 'string' && ['command', 'file_change', 'user_input'].includes(String(event.kind)) && event.details && typeof event.details === 'object') return event as ServerEvent
     if (event.type === 'request_outcome' && typeof event.id === 'string' && ['completed', 'expired', 'cancelled'].includes(String(event.status))) return event as ServerEvent
     if (event.type === 'capabilities' && Array.isArray(event.models) && event.models.every(isModel) && Array.isArray(event.collaboration_modes) && event.collaboration_modes.every(isMode)) return event as ServerEvent
+    if (event.type === 'usage' && ['available', 'unsupported', 'error'].includes(String(event.status)) && (event.rate_limits === null || isUsageLimit(event.rate_limits)) && isUsageMap(event.rate_limits_by_id) && (event.ordinary_usage_allowed === null || typeof event.ordinary_usage_allowed === 'boolean')) return event as ServerEvent
+    if (event.type === 'usage_update' && isUsageLimit(event.rate_limits)) return event as ServerEvent
     if (event.type === 'steer_accepted' && typeof event.text === 'string') return event as ServerEvent
     if (event.type === 'conversation_list' && Array.isArray(event.conversations) && event.conversations.every(isConversation)) return event as ServerEvent
     if (event.type === 'project_list' && Array.isArray(event.projects) && event.projects.every(isProject) && typeof event.selected_id === 'string') return event as ServerEvent
@@ -81,6 +88,22 @@ function isMode(value: unknown): value is CollaborationCapability {
   if (!value || typeof value !== 'object') return false
   const mode = value as Record<string, unknown>
   return typeof mode.name === 'string' && typeof mode.mode === 'string' && (mode.model === null || typeof mode.model === 'string') && (mode.reasoning_effort === null || typeof mode.reasoning_effort === 'string')
+}
+
+function isUsageWindow(value: unknown): value is UsageWindow {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const window = value as Record<string, unknown>
+  return ['used_percent', 'window_duration_mins', 'resets_at'].every(key => window[key] === undefined || (typeof window[key] === 'number' && Number.isFinite(window[key])))
+}
+
+function isUsageLimit(value: unknown): value is UsageLimit {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const limit = value as Record<string, unknown>
+  return ['limit_id', 'limit_name'].every(key => limit[key] === undefined || typeof limit[key] === 'string') && ['primary', 'secondary'].every(key => limit[key] === undefined || isUsageWindow(limit[key]))
+}
+
+function isUsageMap(value: unknown): value is Record<string, UsageLimit> {
+  return !!value && typeof value === 'object' && !Array.isArray(value) && Object.values(value).every(isUsageLimit)
 }
 
 export function useChat() {
@@ -108,6 +131,7 @@ export function useChat() {
   const [activeTurn, setActiveTurn] = useState(false)
   const [requests, setRequests] = useState<PendingRequest[]>([])
   const [userInput, setUserInput] = useState<'supported' | 'unsupported'>('unsupported')
+  const [usage, setUsage] = useState<Usage | null>(null)
 
   useEffect(() => {
     const scheme = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -128,7 +152,20 @@ export function useChat() {
             setError(null)
             ws.send(JSON.stringify({ type: 'list_projects' }))
             ws.send(JSON.stringify({ type: 'list_capabilities' }))
+            ws.send(JSON.stringify({ type: 'read_usage' }))
             break
+          case 'usage': setUsage({ status: event.status, rate_limits: event.rate_limits, rate_limits_by_id: event.rate_limits_by_id, ordinary_usage_allowed: event.ordinary_usage_allowed }); break
+          case 'usage_update': setUsage(previous => {
+            if (previous?.status !== 'available') return previous
+            const id = event.rate_limits.limit_id
+            const prior = id ? previous.rate_limits_by_id[id] : undefined
+            const merge = (current: UsageLimit | null | undefined): UsageLimit => ({ ...current, ...event.rate_limits,
+              primary: current?.primary || event.rate_limits.primary ? { ...current?.primary, ...event.rate_limits.primary } : undefined,
+              secondary: current?.secondary || event.rate_limits.secondary ? { ...current?.secondary, ...event.rate_limits.secondary } : undefined })
+            return { ...previous,
+              rate_limits: merge(previous.rate_limits),
+              rate_limits_by_id: id && prior ? { ...previous.rate_limits_by_id, [id]: merge(prior) } : previous.rate_limits_by_id }
+          }); break
           case 'project_list': {
             setProjects(event.projects)
             const saved = window.localStorage.getItem(savedProjectKey)
@@ -215,7 +252,7 @@ export function useChat() {
             })
             break
           case 'agent_status': setAgentStatus(event.status); break
-          case 'turn_completed': setTurn(event.status); setActiveTurn(false); setStopPending(false); setAgentStatus(event.status); break
+          case 'turn_completed': setTurn(event.status); setActiveTurn(false); setStopPending(false); setAgentStatus(event.status); ws.send(JSON.stringify({ type: 'read_usage' })); break
           case 'error': {
             setError(event.code)
             if (event.code === 'stop_failed') setStopPending(false)
@@ -248,6 +285,7 @@ export function useChat() {
         setConnection('disconnected')
         setRequests(previous => previous.map(request => request.status === 'pending' ? { ...request, status: 'cancelled' } : request))
         setModels([])
+        setUsage(null)
         setCollaborationModes([])
         setStopPending(false)
         setActiveTurn(false)
@@ -329,6 +367,10 @@ export function useChat() {
     if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify({ type: 'list_capabilities' }))
   }
 
+  function refreshUsage(): void {
+    if (socket.current?.readyState === WebSocket.OPEN) socket.current.send(JSON.stringify({ type: 'read_usage' }))
+  }
+
   function stop(): void {
     if (socket.current?.readyState !== WebSocket.OPEN || turn !== 'running' || !activeTurn || stopPending) return
     setStopPending(true)
@@ -373,5 +415,5 @@ export function useChat() {
     socket.current.send(JSON.stringify({ type: 'answer_user_input', id, answers }))
   }
 
-  return { connection, turn, activeTurn, agentStatus, messages, conversations, projects, selectedProjectId, selectedId, selecting, error, models, collaborationModes, selectedModelId, selectedEffort, selectedMode, stopPending, requests, userInput, answerApproval, answerUserInput, send, steer, stop, selectModel, selectEffort, selectMode, refreshCapabilities, newConversation, selectConversation, selectProject }
+  return { connection, turn, activeTurn, agentStatus, messages, conversations, projects, selectedProjectId, selectedId, selecting, error, models, collaborationModes, selectedModelId, selectedEffort, selectedMode, stopPending, requests, userInput, usage, answerApproval, answerUserInput, send, steer, stop, selectModel, selectEffort, selectMode, refreshCapabilities, refreshUsage, newConversation, selectConversation, selectProject }
 }

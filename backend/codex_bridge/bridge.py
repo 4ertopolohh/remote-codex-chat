@@ -18,6 +18,7 @@ from ._transport import (
     ServerNotification,
     ServerRequest,
 )
+from .usage import normalize_usage, normalize_usage_update
 
 
 class BridgeError(RuntimeError):
@@ -79,6 +80,11 @@ class RequestFinished:
     status: str
 
 
+@dataclass(frozen=True)
+class UsageChanged:
+    rate_limits: dict[str, object]
+
+
 @dataclass
 class _PendingServerRequest:
     request_id: int | str
@@ -113,6 +119,7 @@ BridgeEvent = (
     | ThreadStatusChanged
     | RequestPending
     | RequestFinished
+    | UsageChanged
 )
 _APPROVAL_METHODS = {
     "item/commandExecution/requestApproval": "command",
@@ -331,6 +338,18 @@ class CodexBridge:
                 )
             )
         return tuple(modes)
+
+    async def read_usage(self) -> dict[str, object]:
+        if not self.ready:
+            raise ServerTerminated("Codex bridge is not ready")
+        try:
+            return normalize_usage(await self._client.request("account/rateLimits/read", {}, timeout=10))
+        except AppServerRpcError as exc:
+            if exc.code == -32601:
+                return {"status": "unsupported", "rate_limits": None, "rate_limits_by_id": {}, "ordinary_usage_allowed": None}
+            raise OperationFailed(str(exc)) from exc
+        except AppServerError as exc:
+            raise self._translate(exc) from exc
 
     async def start_turn(
         self,
@@ -629,6 +648,9 @@ class CodexBridge:
 
     def _map_notification(self, event: ServerNotification) -> BridgeEvent | None:
         params = event.params
+        if event.method == "account/rateLimits/updated":
+            snapshot = normalize_usage_update(params)
+            return UsageChanged(snapshot) if snapshot is not None else None
         thread_id = self._string(params, "threadId")
         if event.method == "item/agentMessage/delta":
             turn_id = self._string(params, "turnId")

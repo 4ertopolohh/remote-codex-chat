@@ -5,12 +5,13 @@ import time
 from pathlib import Path
 
 import pytest
-from app import create_app
-from codex_bridge import TurnCompleted
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 from test_chat_websocket import FakeBridge
 from test_conversation_recovery import FakeBridge as RecoveryBridge
+
+from app import create_app
+from codex_bridge import TurnCompleted
 
 
 def configured(tmp_path: Path) -> list[dict[str, str]]:

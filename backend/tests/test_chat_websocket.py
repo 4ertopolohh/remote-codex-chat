@@ -4,6 +4,8 @@ import asyncio
 import time
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from app import create_app
 from codex_bridge import (
     AgentMessageDelta,
@@ -14,8 +16,8 @@ from codex_bridge import (
     RequestPending,
     ThreadStatusChanged,
     TurnCompleted,
+    UsageChanged,
 )
-from fastapi.testclient import TestClient
 
 
 class FakeBridge:
@@ -36,6 +38,8 @@ class FakeBridge:
         self.user_input_supported = False
         self.pending: set[str] = set()
         self.answers: list[tuple[str, str]] = []
+        self.usage: dict[str, object] | None = None
+        self.usage_error = False
 
     async def start(self) -> None:
         self.ready = True
@@ -59,6 +63,12 @@ class FakeBridge:
 
     async def list_collaboration_modes(self) -> tuple[CollaborationCapability, ...]:
         return self.modes
+
+    async def read_usage(self) -> dict[str, object]:
+        if self.usage_error:
+            raise OperationFailed("usage read failed")
+        return self.usage or {"status": "unsupported", "rate_limits": None, "rate_limits_by_id": {}, "ordinary_usage_allowed": None}
+
 
     async def steer_turn(self, thread_id: str, turn_id: str, prompt: str) -> None:
         self.steered.append(prompt)
@@ -93,6 +103,43 @@ class FakeBridge:
             self.pending.remove(pending_id)
             self.answers.append((pending_id, "decline"))
             self.events.put_nowait(RequestFinished(pending_id, "cancelled"))
+
+
+def test_usage_read_is_isolated_from_chat(tmp_path: Path) -> None:
+    bridge = FakeBridge()
+    bridge.usage_error = True
+    app = create_app(lambda: bridge, project=tmp_path, database=tmp_path / "conversations.sqlite3")
+    with TestClient(app) as client, client.websocket_connect("/ws/chat") as ws:
+        assert ws.receive_json() == {"type": "ready"}
+        ws.send_json({"type": "read_usage"})
+        assert ws.receive_json() == {"type": "usage", "status": "error", "rate_limits": None, "rate_limits_by_id": {}, "ordinary_usage_allowed": None}
+        ws.send_json({"type": "submit_prompt", "text": "hello"})
+        assert ws.receive_json()["type"] == "conversation_selected"
+        assert ws.receive_json() == {"type": "turn_started"}
+
+
+def test_usage_read_preserves_flexible_sparse_data(tmp_path: Path) -> None:
+    bridge = FakeBridge()
+    bridge.usage = {"status": "available", "rate_limits": None, "rate_limits_by_id": {"new_bucket": {"primary": {"used_percent": 42.0}}}, "ordinary_usage_allowed": None}
+    app = create_app(lambda: bridge, project=tmp_path, database=tmp_path / "conversations.sqlite3")
+    with TestClient(app) as client, client.websocket_connect("/ws/chat") as ws:
+        assert ws.receive_json() == {"type": "ready"}
+        ws.send_json({"type": "read_usage"})
+        assert ws.receive_json() == {"type": "usage", **bridge.usage}
+
+
+def test_usage_update_during_turn_does_not_interrupt_stream(tmp_path: Path) -> None:
+    bridge = FakeBridge()
+    app = create_app(lambda: bridge, project=tmp_path, database=tmp_path / "conversations.sqlite3")
+    with TestClient(app) as client, client.websocket_connect("/ws/chat") as ws:
+        assert ws.receive_json() == {"type": "ready"}
+        ws.send_json({"type": "submit_prompt", "text": "hello"})
+        assert ws.receive_json()["type"] == "conversation_selected"
+        assert ws.receive_json() == {"type": "turn_started"}
+        bridge.events.put_nowait(UsageChanged({"limit_id": "dynamic", "primary": {"used_percent": 20}}))
+        bridge.events.put_nowait(AgentMessageDelta("thread-1", "turn-1", "hi"))
+        assert ws.receive_json() == {"type": "usage_update", "rate_limits": {"limit_id": "dynamic", "primary": {"used_percent": 20}}}
+        assert ws.receive_json() == {"type": "assistant_delta", "text": "hi"}
 
 
 def test_prompt_streams_domain_events_and_completion(tmp_path: Path) -> None:
