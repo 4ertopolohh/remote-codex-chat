@@ -5,7 +5,7 @@ from argon2 import PasswordHasher
 from fastapi.testclient import TestClient as BaseTestClient
 
 TEST_PASSWORD = "test-password"
-TEST_ORIGIN = "http://testserver"
+TEST_ORIGIN = "http://localhost:5173"
 TEST_HASH = PasswordHasher().hash(TEST_PASSWORD)
 
 

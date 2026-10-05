@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { App } from '../App/App'
+import { ActionButton } from '../ActionButton/ActionButton'
 import styles from './AuthGate.module.scss'
 
 type AuthState = { status: 'checking' | 'signed-out' | 'signed-in'; csrf: string | null; error: string | null }
@@ -65,7 +66,7 @@ export function AuthGate() {
           <label htmlFor="auth-password">Password</label>
           <input id="auth-password" type="password" autoComplete="current-password" autoFocus value={password} onChange={event => setPassword(event.target.value)} disabled={busy} required />
           {auth.error && <p className={styles.error} role="alert">{auth.error}</p>}
-          <button type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
+          <ActionButton className={styles.submit} tone="secondary" type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</ActionButton>
         </form>
       </>}
     </section>

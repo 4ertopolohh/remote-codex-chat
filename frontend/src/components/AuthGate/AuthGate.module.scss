@@ -7,7 +7,6 @@
 .card form { display: grid; gap: var(--space-3); margin-top: var(--space-6); }
 .card label { font-size: 13px; font-weight: 700; }
 .card input { width: 100%; min-height: 48px; padding: 0 var(--space-4); border: var(--stroke); border-radius: var(--radius-field); background: white; color: var(--color-ink); font: inherit; }
-.card input:focus-visible, .card button:focus-visible { outline: 2px solid var(--color-accent-deep); outline-offset: 2px; }
-.card button { min-height: 48px; border: 0; border-radius: var(--radius-pill); background: var(--color-ink); color: white; font: inherit; font-weight: 700; cursor: pointer; }
-.card button:disabled { opacity: .55; cursor: wait; }
+.card input:focus-visible, .submit:focus-visible { outline: 2px solid var(--color-accent-deep); outline-offset: 2px; }
+.submit { width: 100%; min-height: 48px; }
 .card .error { margin: 0; color: var(--color-danger); font-size: 13px; }

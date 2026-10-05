@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import time
 from pathlib import Path
 
 import pytest
@@ -98,6 +99,18 @@ def test_expired_session_is_rejected(tmp_path: Path) -> None:
             ws.receive_json()
 
 
+def test_active_websocket_closes_when_session_expires(tmp_path: Path) -> None:
+    with make_client(tmp_path) as client:
+        login(client)
+        with sqlite3.connect(tmp_path / "auth.sqlite3") as db:
+            db.execute("UPDATE sessions SET expires_at = ?", (time.time() + 0.5,))
+        with client.websocket_connect("/ws/chat", headers={"Origin": TEST_ORIGIN}) as ws:
+            assert ws.receive_json() == {"type": "ready"}
+            with pytest.raises(WebSocketDisconnect) as disconnected:
+                ws.receive_json()
+            assert disconnected.value.code == 4401
+
+
 def test_remote_cookie_is_secure_and_configuration_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     remote = AuthSettings(TEST_HASH, "https://chat.example.test", True, tmp_path / "remote.sqlite3")
     with make_client(tmp_path, remote) as client:
@@ -111,4 +124,8 @@ def test_remote_cookie_is_secure_and_configuration_fails_closed(tmp_path: Path, 
     monkeypatch.setenv("RC_PASSWORD_HASH", TEST_HASH)
     monkeypatch.setenv("RC_AUTH_MODE", "remote")
     with pytest.raises(ValueError, match="HTTPS"), make_client(tmp_path):
+        pass
+    monkeypatch.setenv("RC_AUTH_MODE", "local")
+    monkeypatch.setenv("RC_PUBLIC_ORIGIN", "http://public.example.test")
+    with pytest.raises(ValueError, match="loopback"), make_client(tmp_path):
         pass

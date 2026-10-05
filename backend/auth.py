@@ -43,6 +43,8 @@ class AuthSettings:
             raise ValueError("Remote mode requires an HTTPS RC_PUBLIC_ORIGIN")
         if not remote and parsed.scheme != "http":
             raise ValueError("Local mode requires an HTTP RC_PUBLIC_ORIGIN")
+        if not remote and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+            raise ValueError("Local mode requires a loopback RC_PUBLIC_ORIGIN")
         return cls(
             password_hash, origin, remote,
             Path(os.environ.get("RC_AUTH_DATABASE_PATH", Path(__file__).resolve().parent / "data" / "auth.sqlite3")),

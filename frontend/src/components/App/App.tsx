@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useChat } from '../../chat/useChat'
 import { useViewportDock } from '../../hooks/useViewportDock'
 import { ConnectionStatus } from '../ConnectionStatus/ConnectionStatus'
+import { ActionButton } from '../ActionButton/ActionButton'
 import { ApprovalCard } from '../ApprovalCard/ApprovalCard'
 import { Conversation } from '../Conversation/Conversation'
 import { ConversationList } from '../ConversationList/ConversationList'
@@ -81,7 +82,7 @@ export function App({ onLogout, onAuthRequired, authError }: { onLogout?: () => 
       <div className={`${styles.brand} ${responsive.brand}`}><span className={styles.brandMark} aria-hidden="true">✳</span><div><strong>Codex</strong><small>Remote workspace</small></div></div>
       <div className={styles.headerActions}>
         <ConnectionStatus status={chat.connection} />
-        {onLogout && <button className={styles.signOut} type="button" onClick={onLogout}>Sign out</button>}
+        {onLogout && <ActionButton tone="secondary" onClick={onLogout}>Sign out</ActionButton>}
         <button ref={historyTrigger} className={`${styles.historyToggle} ${responsive.historyToggle}`} type="button" aria-expanded={historyOpen} aria-controls="conversation-history" onClick={() => setHistoryOpen(value => !value)}>History</button>
       </div>
     </header>
