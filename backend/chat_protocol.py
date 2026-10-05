@@ -9,7 +9,7 @@ class SubmitPrompt(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     type: Literal["submit_prompt"]
-    text: StrictStr = Field(min_length=1, max_length=10000)
+    text: StrictStr = Field(min_length=1)
     request_id: StrictStr | None = Field(default=None, min_length=1, max_length=128)
     model_id: StrictStr | None = None
     reasoning_effort: StrictStr | None = None
@@ -34,7 +34,7 @@ class StopTurn(BaseModel):
 class SteerTurn(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: Literal["steer_turn"]
-    text: StrictStr = Field(min_length=1, max_length=10000)
+    text: StrictStr = Field(min_length=1)
 
 
 class NewConversation(BaseModel):
