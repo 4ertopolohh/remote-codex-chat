@@ -1,6 +1,6 @@
 # Лицензии шрифтов TriadStudio
 
-Проверено 5 октября 2026 года. В `C:\Users\isoko\Documents\TriadStudio\frontend\src\assets\fonts` лежат `Actay-Regular.woff2`, `ActayCondensed-Thin.woff2`, `ActayWide-Bold.woff2` и `AKONY.woff2`; `frontend/src/styles/_fonts.scss` подключает их через `@font-face`. В дереве TriadStudio не найдено относящихся к этим шрифтам лицензий, чеков или README с условиями использования. Наличие файлов в проекте само по себе не подтверждает право переносить их в другой репозиторий.
+Проверено 5 октября 2026 года. В `TriadStudio frontend/src/assets/fonts` лежат `Actay-Regular.woff2`, `ActayCondensed-Thin.woff2`, `ActayWide-Bold.woff2` и `AKONY.woff2`; `frontend/src/styles/_fonts.scss` подключает их через `@font-face`. В дереве TriadStudio не найдено относящихся к этим шрифтам лицензий, чеков или README с условиями использования. Наличие файлов в проекте само по себе не подтверждает право переносить их в другой репозиторий.
 
 | Шрифт | Первичный источник и условия | Вывод для переноса |
 | --- | --- | --- |

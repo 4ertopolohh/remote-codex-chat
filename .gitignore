@@ -18,14 +18,13 @@ backend/.coverage
 backend/htmlcov/
 
 # Runtime data
-backend/data/*.db
-backend/data/*.sqlite
-backend/data/*.sqlite3
-backend/data/uploads/
-backend/data/tmp/
+backend/data/
+*.sqlite3-shm
+*.sqlite3-wal
 
 # Local analysis artifacts
 repomix-output.xml
+repomix-*.xml
 
 # OS
 Thumbs.db

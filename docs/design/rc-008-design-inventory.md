@@ -1,6 +1,6 @@
 # RC-008 design inventory
 
-Reference: `C:/Users/isoko/Documents/TriadStudio/frontend`, inspected read-only on 2026-10-05. Paths below are relative to that root. This is a source inventory, not a claim that every pattern is already rendered in Remote Codex Chat.
+Reference: `local TriadStudio frontend`, inspected read-only on 2026-10-05. Paths below are relative to that root. This is a source inventory, not a claim that every pattern is already rendered in Remote Codex Chat.
 
 | Category | Observed in TriadStudio | Source |
 | --- | --- | --- |
