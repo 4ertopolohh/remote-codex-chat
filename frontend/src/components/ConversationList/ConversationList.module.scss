@@ -1,5 +1,5 @@
-.list { display: flex; flex: 1 0 150px; flex-direction: column; gap: var(--space-3); min-height: 150px; min-width: 0; }
-.list ul { display: flex; flex: 1 1 auto; min-height: 0; flex-direction: column; gap: var(--space-1); overflow-y: auto; margin: 0; padding: 0 var(--space-1) 0 0; list-style: none; scrollbar-color: var(--color-border) transparent; scrollbar-width: thin; }
+.list { gap: var(--space-3); flex-direction: column; min-width: 0; display: flex; }
+.list ul { gap: var(--space-1); min-height: 0; padding: 0 var(--space-1) 0 0; scrollbar-color: var(--color-border) transparent; scrollbar-width: thin; flex-direction: column; flex: auto; margin: 0; list-style: none; display: none; overflow-y: auto; }
 .list li { min-width: 0; }
 .list li button { width: 100%; min-height: 44px; padding: var(--space-2) var(--space-4); border: var(--stroke); border-radius: var(--radius-field); background: var(--color-paper); color: var(--color-ink); text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: background-color var(--motion-fast), color var(--motion-fast); }
 .list li button:hover:not(:disabled), .list li button[aria-current='page'] { background: var(--color-ink); color: var(--color-paper); }

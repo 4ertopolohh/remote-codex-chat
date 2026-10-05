@@ -3,7 +3,7 @@
 .emptyMark { display: grid; place-items: center; width: 58px; height: 58px; margin: 0 auto var(--space-4); border-radius: 50%; background: var(--color-paper); color: var(--color-accent-deep); font-size: 30px; }
 .empty h2 { margin: 0 0 var(--space-2); color: var(--color-ink); font-family: var(--font-emphasis); font-size: 20px; }
 .empty p { margin: 0; font-size: 14px; }
-.message { max-width: min(85%, 760px); min-width: 0; padding: var(--space-4) var(--space-5); background: var(--color-paper); border: var(--stroke); border-radius: var(--radius-dialog); overflow: hidden; }
+.message { min-width: 0; max-width: min(85%, 760px); padding: var(--space-4) var(--space-5); background: var(--color-paper); border: var(--stroke); border-radius: var(--radius-dialog); }
 .user { align-self: flex-end; background: color-mix(in srgb, var(--color-accent) 30%, var(--color-paper)); border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border)); }
 .assistant { align-self: flex-start; }
 .message strong { display: block; margin-bottom: var(--space-2); font-family: var(--font-emphasis); font-size: 12px; }

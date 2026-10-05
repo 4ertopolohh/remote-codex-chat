@@ -11,8 +11,8 @@ export function UsageLimit({ label, limit }: Props) {
       const window = limit[slot]
       if (!window) return null
       return <div key={slot} className={styles.window}>
-        <span>{slot === 'primary' ? 'Основной лимит' : 'Дополнительный лимит'}</span>
-        {window.used_percent !== undefined && <strong>Использовано: {window.used_percent}%</strong>}
+        <span>{slot === 'primary' ? 'Основной лимит' : 'Недельный лимит'}</span>
+        {window.used_percent !== undefined && <strong>Осталось: {Math.max(0, 100 - window.used_percent)}%</strong>}
         {window.window_duration_mins !== undefined && <span>Период: {formatRussianDuration(window.window_duration_mins)}</span>}
         {window.resets_at !== undefined && <span>Сброс: {new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(window.resets_at * 1000))}</span>}
       </div>

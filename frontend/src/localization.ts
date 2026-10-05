@@ -1,6 +1,7 @@
 const durationForms = {
   minute: ['минута', 'минуты', 'минут'] as const,
   hour: ['час', 'часа', 'часов'] as const,
+  day: ['день', 'дня', 'дней'] as const,
 }
 
 function russianPlural(value: number, [one, few, many]: readonly [string, string, string]): string {
@@ -14,11 +15,15 @@ function russianPlural(value: number, [one, few, many]: readonly [string, string
 }
 
 export function formatRussianDuration(minutes: number): string {
-  if (minutes % 60 === 0) {
-    const hours = minutes / 60
-    return `${hours} ${russianPlural(hours, durationForms.hour)}`
-  }
-  return `${minutes} ${russianPlural(minutes, durationForms.minute)}`
+  const wholeHours = Math.floor(minutes / 60)
+  const days = Math.floor(wholeHours / 24)
+  const hours = wholeHours % 24
+  const remainingMinutes = minutes % 60
+  const parts: string[] = []
+  if (days > 0) parts.push(`${days} ${russianPlural(days, durationForms.day)}`)
+  if (hours > 0) parts.push(`${hours} ${russianPlural(hours, durationForms.hour)}`)
+  if (remainingMinutes > 0 && days === 0 && hours === 0) parts.push(`${remainingMinutes} ${russianPlural(remainingMinutes, durationForms.minute)}`)
+  return parts.join(' ') || `0 ${russianPlural(0, durationForms.hour)}`
 }
 
 export function displayConversationTitle(title: string): string {

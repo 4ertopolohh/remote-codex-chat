@@ -1,4 +1,4 @@
-.status { display: inline-flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: var(--stroke); border-radius: var(--radius-pill); color: var(--color-muted); font-size: 12px; white-space: nowrap; }
+.status { align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-3); border: var(--stroke); border-radius: var(--radius-pill); color: var(--color-muted); white-space: nowrap; font-size: 12px; display: inline-flex; padding-bottom: 6px !important; }
 .status::before { content: ''; width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--color-warning); }
 .status[data-status='connected']::before { background: var(--color-success); }
 .status[data-status='disconnected']::before { background: var(--color-danger); }
