@@ -143,6 +143,7 @@ class TurnFinished(BaseModel):
 
 class ChatError(BaseModel):
     type: Literal["error"] = "error"
+    id: str | None = None
     code: Literal[
         "invalid_message",
         "turn_in_progress",

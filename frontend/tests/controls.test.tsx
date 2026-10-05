@@ -124,6 +124,22 @@ test('approval outcome is not claimed after a lost connection', () => {
   expect(screen.getByRole('button', { name: 'Approve' }).hasAttribute('disabled')).toBe(true)
 })
 
+test('rejected approval response does not remain in sending state', () => {
+  render(<App />)
+  const socket = FakeSocket.instances[0]
+  socket.emit({ type: 'ready' })
+  socket.emit({ type: 'conversation_selected', conversation: { id: 'c1', project_id: 'default', title: 'Chat', created_at: 'now', updated_at: 'now' }, messages: [] })
+  fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'run' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  socket.emit({ type: 'turn_started' })
+  socket.emit({ type: 'pending_request', id: 'approval-1', kind: 'command', details: { command: 'echo safe' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
+  socket.emit({ type: 'error', code: 'request_unavailable', id: 'approval-1' })
+  expect(screen.getByRole('heading', { name: 'Request unknown' })).toBeTruthy()
+  expect(screen.queryByText('Sending response…')).toBeNull()
+  expect(screen.getByText('Turn: running')).toBeTruthy()
+})
+
 test('repeated connection failures back off and a ready connection resets the delay', () => {
   vi.useFakeTimers()
   try {

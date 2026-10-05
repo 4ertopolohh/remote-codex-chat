@@ -18,7 +18,7 @@ Checked on 2026-10-05. This file records automated evidence from the Windows wor
 | Interrupt | Terminal `interrupted` | Known interrupted state; Stop is not replayed. | Existing Stop test. |
 | Unavailable model, reasoning, mode | Preflight error | Rejected prompt is removed; refresh/select a listed capability and send again. | Existing capability tests. |
 | Expired or revoked session | WebSocket close 4401 or session check 401 | Sign-in screen; reauthenticate. | Existing auth tests. |
-| Pending approval or user input at disconnect | WebSocket close; backend `cancel_pending` | UI disables the old request and labels its outcome unknown. Backend attempts decline for approval or unavailable error for user input. A successful prior response may have reached Codex, so UI does not claim cancellation. | Existing approval disconnect test; new frontend request test. |
+| Pending approval or user input at disconnect | WebSocket close; backend `cancel_pending` | UI disables the old request and labels its outcome unknown. Backend attempts decline for approval or unavailable error for user input. A successful prior response may have reached Codex, so UI does not claim cancellation. A `request_unavailable` error identifies the request, clears its sending state, and does not end the turn. | Existing approval disconnect test; new frontend request tests. |
 | Stale conversation/thread | Selection returns `conversation_not_found` or `thread_unavailable` | Old transcript is cleared; start a new conversation. | Existing recovery and frontend tests. |
 
 The SQLite submission record is a conservative replay fence, not proof that Codex executed a turn. A crash between ID reservation and the Codex response leaves the outcome unknown. A fresh ID represents a new deliberate action after the user reviews history. Legacy clients that omit `request_id` retain the earlier protocol behavior; the shipped browser always supplies it.
@@ -27,7 +27,7 @@ The SQLite submission record is a conservative replay fence, not proof that Code
 
 - `cd backend && uv run pytest -q`: 60 passed.
 - `cd backend && uv run ruff check .`: passed.
-- `cd frontend && npm test`: 32 passed.
+- `cd frontend && npm test`: 33 passed.
 - `cd frontend && npm run lint && npm run build`: passed.
 - Windows Python subprocess tests emitted pre-existing async transport cleanup warnings; no test failed.
 - The physical phone, mobile-data toggle, normal Happ VPN mode, CloudPub outage/restart, and long-lived public WebSocket path have **not** been exercised for RC-013. Complete the [RC-012 phone matrix](RC-012-remote-access.md) before claiming production network recovery or closing this ticket.

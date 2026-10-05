@@ -224,7 +224,7 @@ def test_approval_is_visible_once_and_unknown_id_is_rejected(tmp_path: Path) -> 
         ws.send_json(
             {"type": "answer_approval", "id": "invented", "decision": "accept"}
         )
-        assert ws.receive_json() == {"type": "error", "code": "request_unavailable"}
+        assert ws.receive_json() == {"type": "error", "code": "request_unavailable", "id": "invented"}
         ws.send_json(
             {"type": "answer_approval", "id": "opaque-1", "decision": "accept"}
         )
@@ -236,7 +236,7 @@ def test_approval_is_visible_once_and_unknown_id_is_rejected(tmp_path: Path) -> 
         ws.send_json(
             {"type": "answer_approval", "id": "opaque-1", "decision": "decline"}
         )
-        assert ws.receive_json() == {"type": "error", "code": "request_unavailable"}
+        assert ws.receive_json() == {"type": "error", "code": "request_unavailable", "id": "opaque-1"}
         assert bridge.answers == [("opaque-1", "accept")]
 
 
@@ -284,7 +284,7 @@ def test_request_from_other_turn_is_cancelled_without_browser_authority(
             )
         )
         ws.send_json({"type": "answer_approval", "id": "stale", "decision": "accept"})
-        assert ws.receive_json() == {"type": "error", "code": "request_unavailable"}
+        assert ws.receive_json() == {"type": "error", "code": "request_unavailable", "id": "stale"}
         for _ in range(100):
             if bridge.answers:
                 break

@@ -67,7 +67,7 @@ _client_message_adapter = TypeAdapter(ClientMessage)
 
 
 async def send_event(ws: WebSocket, event: ServerEvent) -> None:
-    await ws.send_json(event.model_dump())
+    await ws.send_json(event.model_dump(exclude_none=isinstance(event, ChatError)))
 
 
 def parse_client_message(raw: object) -> ClientMessage:
@@ -366,7 +366,7 @@ def create_app(
                         await send_event(ws, ChatError(code="no_active_turn"))
                         continue
                     if isinstance(message, (AnswerApproval, AnswerUserInput)):
-                        await send_event(ws, ChatError(code="request_unavailable"))
+                        await send_event(ws, ChatError(code="request_unavailable", id=message.id))
                         continue
                     if isinstance(message, NewConversation):
                         thread_id = await bridge.start_thread(projects.resolve(project_id))
@@ -609,7 +609,7 @@ def create_app(
                                 ):
                                     if active_message.id not in visible_requests:
                                         await send_event(
-                                            ws, ChatError(code="request_unavailable")
+                                            ws, ChatError(code="request_unavailable", id=active_message.id)
                                         )
                                     else:
                                         try:
@@ -632,7 +632,7 @@ def create_app(
                                         if not accepted:
                                             await send_event(
                                                 ws,
-                                                ChatError(code="request_unavailable"),
+                                                ChatError(code="request_unavailable", id=active_message.id),
                                             )
                                 elif isinstance(active_message, StopTurn):
                                     if not stopping:

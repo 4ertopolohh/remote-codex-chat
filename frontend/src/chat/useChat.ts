@@ -29,7 +29,7 @@ type ServerEvent =
   | { type: 'assistant_delta'; text: string }
   | { type: 'agent_status'; status: string }
   | { type: 'turn_completed'; status: 'completed' | 'failed' | 'interrupted' }
-  | { type: 'error'; code: string }
+  | { type: 'error'; code: string; id?: string }
 
 const savedConversationKey = 'remote-codex-chat.conversation-id'
 const savedProjectKey = 'remote-codex-chat.project-id'
@@ -89,7 +89,7 @@ function parseEvent(data: string): ServerEvent | null {
     if (event.type === 'assistant_delta' && typeof event.text === 'string') return event as ServerEvent
     if (event.type === 'agent_status' && typeof event.status === 'string') return event as ServerEvent
     if (event.type === 'turn_completed' && ['completed', 'failed', 'interrupted'].includes(String(event.status))) return event as ServerEvent
-    if (event.type === 'error' && typeof event.code === 'string') return event as ServerEvent
+    if (event.type === 'error' && typeof event.code === 'string' && (event.id === undefined || typeof event.id === 'string')) return event as ServerEvent
   } catch { /* Ignore malformed server data. */ }
   return null
 }
@@ -278,6 +278,7 @@ export function useChat(onAuthRequired?: () => void) {
           case 'turn_completed': if (selectedIdRef.current) clearUncertainTurn(selectedIdRef.current); setTurn(event.status); setActiveTurn(false); setStopPending(false); setAgentStatus(event.status); ws.send(JSON.stringify({ type: 'read_usage' })); break
           case 'error': {
             setError(event.code)
+            if (event.code === 'request_unavailable' && event.id) setRequests(previous => previous.map(request => request.id === event.id && request.status === 'pending' ? { ...request, status: 'unknown' } : request))
             if (event.code === 'stop_failed') setStopPending(false)
             if (event.code === 'codex_failure') { setActiveTurn(false); setStopPending(false) }
             const rejectedPrompt = ['model_unavailable', 'reasoning_unavailable', 'collaboration_unavailable', 'project_unavailable', 'invalid_message'].includes(event.code)
@@ -300,7 +301,7 @@ export function useChat(onAuthRequired?: () => void) {
               setMessages([])
               window.localStorage.removeItem(savedConversationKey)
             }
-            if (!['invalid_message', 'turn_in_progress', 'no_active_turn', 'steer_failed', 'stop_failed', 'model_unavailable', 'reasoning_unavailable', 'collaboration_unavailable'].includes(event.code)) setTurn(selectedIdRef.current && hasUncertainTurn(selectedIdRef.current) ? 'unknown' : 'failed')
+            if (!['invalid_message', 'turn_in_progress', 'no_active_turn', 'steer_failed', 'stop_failed', 'request_unavailable', 'model_unavailable', 'reasoning_unavailable', 'collaboration_unavailable'].includes(event.code)) setTurn(selectedIdRef.current && hasUncertainTurn(selectedIdRef.current) ? 'unknown' : 'failed')
             break
           }
         }
