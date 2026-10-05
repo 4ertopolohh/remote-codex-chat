@@ -10,15 +10,15 @@ The clean-equivalent checkout was a fresh detached `git worktree` in a temporary
 | --- | --- |
 | `cd backend; uv sync --locked --dev` | PASS: created Python 3.12.15 environment and installed 58 locked packages. |
 | `cd backend; uv run --no-sync ruff check .` | PASS. |
-| `cd backend; uv run --no-sync pytest -q` | PASS on clean checkout after the setup fixture fix: 60 tests, 3 non-failing Windows/Starlette warnings. An initial clean run exposed a remote cookie test's dependency on `frontend/dist/index.html`; a test-owned fixture removed that dependency. Final revision adds one Stop regression test; its clean checkout result is recorded below. |
+| `cd backend; uv run --no-sync pytest -q` | PASS on a fresh checkout of commit `13203ca`: 61 tests, 3 non-failing Windows/Starlette warnings. An initial clean run exposed a remote cookie test's dependency on `frontend/dist/index.html`; a test-owned fixture removed that dependency. |
 | `cd frontend; npm ci` | PASS: installed 232 packages from lockfile, npm reported 0 vulnerabilities at check time. |
 | `cd frontend; npm run lint` | PASS. |
 | `cd frontend; npm test` | PASS: 33 tests in 8 files. |
 | `cd frontend; npm run build` | PASS: TypeScript and Vite production build. |
 
-The targeted regression command `cd backend; uv run --no-sync pytest tests/test_auth.py::test_remote_cookie_is_secure_and_configuration_fails_closed -q` passed (1 test). The final clean checkout also passed the full backend suite, independently of frontend build order. The three warnings concern deprecated TestClient and Windows subprocess transports; they are not failing checks.
+The targeted regression command `cd backend; uv run --no-sync pytest tests/test_auth.py::test_remote_cookie_is_secure_and_configuration_fails_closed -q` passed (1 test). The final clean checkout passed the full backend suite, independently of frontend build order. The three warnings concern deprecated TestClient and Windows subprocess transports; they are not failing checks.
 
-After the early Stop fix, `cd backend; uv run --no-sync pytest tests/test_codex_bridge.py::test_interrupt_retries_before_codex_marks_the_turn_active -q` passed (1 test), repository-wide Ruff passed, and the working-checkout backend suite passed (61 tests). A fresh clean checkout of the final revision is the remaining verification step.
+After the early Stop fix, `cd backend; uv run --no-sync pytest tests/test_codex_bridge.py::test_interrupt_retries_before_codex_marks_the_turn_active -q` passed (1 test). The fresh `13203ca` checkout independently passed backend sync, Ruff, 61 backend tests, frontend `npm ci`, lint, 33 frontend tests, and TypeScript/Vite build. Its real local application probe also passed early and streaming Stop, reconnect, and logout.
 
 ## Real local Codex evidence
 
