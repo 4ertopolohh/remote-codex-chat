@@ -129,3 +129,9 @@ def test_remote_cookie_is_secure_and_configuration_fails_closed(tmp_path: Path, 
     monkeypatch.setenv("RC_PUBLIC_ORIGIN", "http://public.example.test")
     with pytest.raises(ValueError, match="loopback"), make_client(tmp_path):
         pass
+    monkeypatch.setenv("RC_FRONTEND_DIST", "")
+    with pytest.raises(ValueError, match="RC_FRONTEND_DIST"):
+        make_client(tmp_path)
+    monkeypatch.setenv("RC_FRONTEND_DIST", str(tmp_path / "missing-build"))
+    with pytest.raises(ValueError, match="built frontend"), make_client(tmp_path, remote):
+        pass

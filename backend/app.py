@@ -110,7 +110,10 @@ def create_app(
             Path(__file__).resolve().parent / "data" / "conversations.sqlite3",
         )
     )
-    frontend_dist = Path(os.environ.get("RC_FRONTEND_DIST", Path(__file__).resolve().parents[1] / "frontend" / "dist"))
+    configured_dist = os.environ.get("RC_FRONTEND_DIST")
+    if configured_dist == "":
+        raise ValueError("RC_FRONTEND_DIST must be a built frontend directory")
+    frontend_dist = Path(configured_dist) if configured_dist else Path(__file__).resolve().parents[1] / "frontend" / "dist"
     store = ConversationStore(database_path)
     chat_active = False
     draining_tasks: set[asyncio.Task[object]] = set()
@@ -128,7 +131,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         auth = AuthService(auth_settings or AuthSettings.from_env())
-        if auth.settings.remote and not frontend_dist.is_dir():
+        if auth.settings.remote and not (frontend_dist / "index.html").is_file():
             raise ValueError("Remote mode requires a built frontend at RC_FRONTEND_DIST")
         auth.initialize()
         app.state.auth = auth
@@ -703,7 +706,7 @@ def create_app(
             else:
                 chat_active = False
 
-    if frontend_dist.is_dir():
+    if (frontend_dist / "index.html").is_file():
         app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
     return app
 
