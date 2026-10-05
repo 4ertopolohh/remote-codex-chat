@@ -1,15 +1,15 @@
 import type { InputQuestion, PendingRequest } from './useChat'
 
 export function requestTitle(request: PendingRequest): string {
-  if (request.status !== 'pending') return `Request ${request.status}`
-  return request.kind === 'user_input' ? 'User input required' : 'Approval required'
+  if (request.status !== 'pending') return `Запрос: ${({ completed: 'выполнен', expired: 'истёк', cancelled: 'отменён', unknown: 'результат неизвестен' } as Record<string, string>)[request.status] ?? 'статус неизвестен'}`
+  return request.kind === 'user_input' ? 'Нужен ваш ответ' : 'Требуется одобрение'
 }
 
 export function requestOutcomeText(request: PendingRequest): string | null {
-  if (request.status === 'unknown') return 'Connection lost; the request outcome is unknown. Review the conversation before taking further action.'
-  if (request.status === 'completed') return 'Response sent.'
-  if (request.status === 'expired') return request.kind === 'user_input' ? 'Timed out without an answer.' : 'Timed out; approval was declined.'
-  if (request.status === 'cancelled') return request.kind === 'user_input' ? 'Cancelled without an answer.' : 'Cancelled; approval was declined.'
+  if (request.status === 'unknown') return 'Связь прервалась, и результат запроса неизвестен. Проверьте переписку, прежде чем продолжить.'
+  if (request.status === 'completed') return 'Ответ отправлен.'
+  if (request.status === 'expired') return request.kind === 'user_input' ? 'Время ожидания ответа истекло.' : 'Время ожидания истекло, запрос отклонён.'
+  if (request.status === 'cancelled') return request.kind === 'user_input' ? 'Запрос отменён без ответа.' : 'Запрос отменён и отклонён.'
   return null
 }
 

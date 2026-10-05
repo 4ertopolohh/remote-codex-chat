@@ -20,11 +20,11 @@ export function MessageInput({ onSend, onSteer, onStop, running, activeTurn, sto
     }
   }
   return <form className={styles.input} onSubmit={submit}>
-    <label htmlFor="prompt">Message</label>
+    <label htmlFor="prompt">Сообщение</label>
     <textarea ref={textarea} id="prompt" value={text} onChange={event => { setText(event.target.value); resize() }} rows={2} maxLength={10000} disabled={disabled} />
     <div className={styles.actions}>
-      {running && <ActionButton tone="secondary" onClick={onStop} disabled={disabled || !activeTurn || stopPending}>Stop</ActionButton>}
-      <ActionButton type="submit" disabled={disabled || (running && (!activeTurn || stopPending)) || !text.trim()}>{running ? 'Steer active turn' : 'Send'}</ActionButton>
+      {running && <ActionButton tone="secondary" onClick={onStop} disabled={disabled || !activeTurn || stopPending}>Остановить</ActionButton>}
+      <ActionButton type="submit" disabled={disabled || (running && (!activeTurn || stopPending)) || !text.trim()}>{running ? 'Направить ответ' : 'Отправить'}</ActionButton>
     </div>
   </form>
 }

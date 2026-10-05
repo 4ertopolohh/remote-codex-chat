@@ -7,7 +7,7 @@ afterEach(cleanup)
 
 test('long prompts grow the composer within a bounded height and remain scrollable', () => {
   render(<MessageInput onSend={vi.fn(() => true)} onSteer={vi.fn(() => true)} onStop={vi.fn()} running={false} activeTurn={false} stopPending={false} disabled={false} />)
-  const textarea = screen.getByRole('textbox', { name: 'Message' }) as HTMLTextAreaElement
+  const textarea = screen.getByRole('textbox', { name: 'Сообщение' }) as HTMLTextAreaElement
   Object.defineProperty(textarea, 'scrollHeight', { configurable: true, value: 480 })
   fireEvent.change(textarea, { target: { value: 'A long prompt' } })
   expect(textarea.style.height).toBe('192px')

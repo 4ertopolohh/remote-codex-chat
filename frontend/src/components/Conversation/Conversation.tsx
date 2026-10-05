@@ -32,14 +32,14 @@ export function Conversation({ messages, loading = false, conversationId = null 
     if (element) following.current = element.scrollHeight - element.clientHeight - element.scrollTop < 72
   }
 
-  return <section ref={viewport} className={`${styles.conversation} ${narrow.conversation}`} aria-label="Conversation" role="region" onScroll={onScroll}>
+  return <section ref={viewport} className={`${styles.conversation} ${narrow.conversation}`} aria-label="Переписка" role="region" onScroll={onScroll}>
     {messages.length === 0 && <div className={styles.empty}>
       <span className={styles.emptyMark}>✳</span>
-      <h2>{loading ? 'Opening conversation…' : 'Start a conversation'}</h2>
-      <p>{loading ? 'Your messages will appear here.' : 'Ask Codex about your selected project.'}</p>
+      <h2>{loading ? 'Открываем чат…' : 'Начните разговор'}</h2>
+      <p>{loading ? 'Здесь появятся ваши сообщения.' : 'Задайте Codex вопрос о выбранном проекте.'}</p>
     </div>}
     {messages.map((message, index) => <article key={index} className={`${styles.message} ${narrow.message} ${message.role === 'user' ? styles.user : styles.assistant}`}>
-      <strong>{message.role === 'user' ? 'You' : 'Codex'}</strong>
+      <strong>{message.role === 'user' ? 'Вы' : 'Codex'}</strong>
       {renderMessageText(message.text)}
     </article>)}
   </section>

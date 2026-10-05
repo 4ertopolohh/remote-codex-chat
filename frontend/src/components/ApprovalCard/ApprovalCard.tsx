@@ -22,24 +22,24 @@ export function ApprovalCard({ request, onApproval, onInput }: { request: Pendin
 
   return <section className={styles.card} aria-label={title}>
     <h2>{title}</h2>
-    {request.kind === 'command' && <p>Command: <code>{request.details.command ?? 'Unavailable'}</code></p>}
-    {request.kind === 'file_change' && <p>File change request</p>}
-    {request.details.reason && <p>Reason: {request.details.reason}</p>}
-    {requiresUnknownFileAcknowledgement(request) && request.status === 'pending' && <label className={styles.acknowledge}><input type="checkbox" checked={acknowledged} disabled={!pending} onChange={event => setAcknowledged(event.target.checked)} /> Codex did not provide a list of changed files. I understand approval may allow file changes beyond the description shown here.</label>}
+    {request.kind === 'command' && <p>Команда: <code>{request.details.command ?? 'Недоступна'}</code></p>}
+    {request.kind === 'file_change' && <p>Запрос на изменение файлов</p>}
+    {request.details.reason && <p>Причина: {request.details.reason}</p>}
+    {requiresUnknownFileAcknowledgement(request) && request.status === 'pending' && <label className={styles.acknowledge}><input type="checkbox" checked={acknowledged} disabled={!pending} onChange={event => setAcknowledged(event.target.checked)} /> Codex не указал список изменённых файлов. Я понимаю, что после одобрения могут измениться файлы, не описанные в запросе.</label>}
     {request.kind === 'user_input' && questions.map(question => <div className={styles.question} key={question.id}>
       <label htmlFor={`${request.id}-${question.id}`}>{question.header}: {question.question}</label>
       {question.options?.length ? <select id={`${request.id}-${question.id}`} value={answers[question.id] ?? ''} disabled={!pending} onChange={event => setAnswers(previous => ({ ...previous, [question.id]: event.target.value }))}>
-        <option value="">Choose an answer</option>
+        <option value="">Выберите ответ</option>
         {question.options.map(option => <option key={option.label} value={option.label}>{option.label} — {option.description}</option>)}
-        {question.is_other && <option value="__other__">Other</option>}
+        {question.is_other && <option value="__other__">Другой ответ</option>}
       </select> : <input id={`${request.id}-${question.id}`} type={question.is_secret ? 'password' : 'text'} value={answers[question.id] ?? ''} disabled={!pending} maxLength={10000} onChange={event => setAnswers(previous => ({ ...previous, [question.id]: event.target.value }))} />}
-      {question.options?.length && question.is_other && answers[question.id] === '__other__' && <input aria-label={`${question.header} other answer`} type={question.is_secret ? 'password' : 'text'} value={otherAnswers[question.id] ?? ''} disabled={!pending} maxLength={10000} onChange={event => setOtherAnswers(previous => ({ ...previous, [question.id]: event.target.value }))} />}
+      {question.options?.length && question.is_other && answers[question.id] === '__other__' && <input aria-label={`${question.header}: свой ответ`} type={question.is_secret ? 'password' : 'text'} value={otherAnswers[question.id] ?? ''} disabled={!pending} maxLength={10000} onChange={event => setOtherAnswers(previous => ({ ...previous, [question.id]: event.target.value }))} />}
     </div>)}
     {request.status !== 'pending' && <p role="status">{requestOutcomeText(request)}</p>}
-    {submitting && request.status === 'pending' && <p role="status">Sending response…</p>}
-    {request.kind === 'user_input' ? <ActionButton disabled={!pending || !inputAnswers} onClick={submitInput}>Send answer</ActionButton> : <div className={styles.actions}>
-      <ActionButton tone="secondary" disabled={!pending} onClick={() => { setSubmitting(true); onApproval(request.id, 'decline') }}>Decline</ActionButton>
-      <ActionButton disabled={!pending || !canApprove(request, acknowledged)} onClick={() => { setSubmitting(true); onApproval(request.id, 'accept') }}>Approve</ActionButton>
+    {submitting && request.status === 'pending' && <p role="status">Отправляем ответ…</p>}
+    {request.kind === 'user_input' ? <ActionButton disabled={!pending || !inputAnswers} onClick={submitInput}>Отправить ответ</ActionButton> : <div className={styles.actions}>
+      <ActionButton tone="secondary" disabled={!pending} onClick={() => { setSubmitting(true); onApproval(request.id, 'decline') }}>Отклонить</ActionButton>
+      <ActionButton disabled={!pending || !canApprove(request, acknowledged)} onClick={() => { setSubmitting(true); onApproval(request.id, 'accept') }}>Одобрить</ActionButton>
     </div>}
   </section>
 }

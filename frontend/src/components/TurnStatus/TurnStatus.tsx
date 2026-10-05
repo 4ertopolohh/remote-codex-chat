@@ -1,19 +1,30 @@
 import styles from './TurnStatus.module.scss'
 
 const recovery: Record<string, string> = {
-  codex_unavailable: 'Codex is unavailable on the PC. Restart the backend after checking Codex.',
-  codex_failure: 'Codex stopped responding. Check the backend and review conversation history before continuing.',
-  thread_unavailable: 'This Codex thread cannot be resumed. Start a new conversation.',
-  conversation_not_found: 'This conversation is no longer available. Start a new conversation.',
-  model_unavailable: 'The selected model is unavailable. Choose a listed model and send again.',
-  reasoning_unavailable: 'The selected reasoning level is unavailable. Choose a listed level and send again.',
-  collaboration_unavailable: 'The selected mode is unavailable. Choose a listed mode and send again.',
-  duplicate_submission: 'This prompt was already submitted. Review conversation history before sending another prompt.',
-  connection_failed: 'Connection failed. Check the network or tunnel; reconnect will be attempted.',
+  invalid_message: 'Не удалось обработать запрос. Проверьте текст и попробуйте снова.',
+  project_not_found: 'Выбранный проект недоступен. Выберите другой проект.',
+  project_unavailable: 'Не удалось открыть проект. Проверьте настройки и повторите попытку.',
+  no_active_turn: 'Сейчас нет активного ответа, который можно остановить или направить.',
+  request_unavailable: 'Запрос Codex больше недоступен. Проверьте переписку, прежде чем продолжить.',
+  stop_failed: 'Не удалось остановить ответ. Попробуйте ещё раз.',
+  steer_failed: 'Не удалось направить текущий ответ. Попробуйте отправить сообщение ещё раз.',
+  turn_in_progress: 'Уже выполняется другой запрос. Дождитесь его завершения или остановите его.',
+  codex_unavailable: 'Codex недоступен на компьютере. Проверьте Codex и перезапустите backend.',
+  codex_failure: 'Codex перестал отвечать. Проверьте backend и историю чата, прежде чем продолжить.',
+  thread_unavailable: 'Не удалось восстановить переписку Codex. Начните новый чат.',
+  conversation_not_found: 'Этот чат больше недоступен. Начните новый чат.',
+  model_unavailable: 'Выбранная модель недоступна. Выберите модель из списка и отправьте запрос снова.',
+  reasoning_unavailable: 'Выбранный уровень рассуждений недоступен. Выберите другой уровень и отправьте запрос снова.',
+  collaboration_unavailable: 'Выбранный режим недоступен. Выберите другой режим и отправьте запрос снова.',
+  duplicate_submission: 'Этот запрос уже отправлен. Проверьте историю чата, прежде чем отправлять следующий.',
+  connection_failed: 'Не удалось подключиться. Проверьте сеть или туннель; приложение попробует подключиться снова.',
 }
+
+const turnLabels: Record<string, string> = { idle: 'ожидает', running: 'выполняется', completed: 'завершён', failed: 'ошибка', interrupted: 'прерван', unknown: 'результат неизвестен' }
+const agentLabels: Record<string, string> = { idle: 'ожидает', starting: 'запускается', running: 'работает', stopping: 'останавливается', completed: 'завершил работу', failed: 'ошибка', interrupted: 'прерван', unknown: 'состояние неизвестно' }
 
 export function TurnStatus({ turn, agentStatus, error }: { turn: string; agentStatus: string; error: string | null }) {
   return <div className={styles.status} role="status">
-    <span>Turn: {turn}</span><span>Agent: {agentStatus}</span>{error && <span>{recovery[error] ?? `Error: ${error.replaceAll('_', ' ')}`}</span>}
+    <span>Запрос: {turnLabels[turn] ?? 'состояние неизвестно'}</span><span>Агент: {agentLabels[agentStatus] ?? 'состояние неизвестно'}</span>{error && <span>{recovery[error] ?? 'Не удалось выполнить действие. Проверьте подключение и попробуйте ещё раз.'}</span>}
   </div>
 }

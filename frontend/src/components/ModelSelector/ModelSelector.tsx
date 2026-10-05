@@ -21,10 +21,10 @@ export function ModelSelector({ models, collaborationModes, modelId, effort, mod
   const selected = models.find(model => model.id === modelId)
   return <div className={`${styles.controls} ${narrow.controls}`}>
     {models.length > 0 && <>
-      <SelectControl label="Model" value={modelId ?? ''} options={models.map(model => ({ value: model.id, label: model.display_name }))} onChange={onModel} disabled={disabled} />
-      {!!selected?.reasoning_efforts.length && <SelectControl label="Reasoning" value={effort ?? ''} options={selected.reasoning_efforts.map(value => ({ value, label: value }))} onChange={onEffort} disabled={disabled} />}
+      <SelectControl label="Модель" value={modelId ?? ''} options={models.map(model => ({ value: model.id, label: model.display_name }))} onChange={onModel} disabled={disabled} />
+      {!!selected?.reasoning_efforts.length && <SelectControl label="Уровень рассуждений" value={effort ?? ''} options={selected.reasoning_efforts.map(value => ({ value, label: ({ low: 'Низкий', medium: 'Средний', high: 'Высокий', xhigh: 'Очень высокий', max: 'Максимальный' } as Record<string, string>)[value] ?? value }))} onChange={onEffort} disabled={disabled} />}
     </>}
-    {models.length > 0 && collaborationModes.some(item => item.mode !== 'default') && <SelectControl label="Mode" value={mode ?? ''} options={[{ value: '', label: 'Default' }, ...collaborationModes.filter(item => item.mode !== 'default').map(item => ({ value: item.mode, label: item.name }))]} onChange={value => onMode(value || null)} disabled={disabled} />}
-    <ActionButton tone="secondary" onClick={onRefresh} disabled={disabled}>Refresh models</ActionButton>
+    {models.length > 0 && collaborationModes.some(item => item.mode !== 'default') && <SelectControl label="Режим" value={mode ?? ''} options={[{ value: '', label: 'Обычный' }, ...collaborationModes.filter(item => item.mode !== 'default').map(item => ({ value: item.mode, label: item.name }))]} onChange={value => onMode(value || null)} disabled={disabled} />}
+    <ActionButton tone="secondary" onClick={onRefresh} disabled={disabled}>Обновить модели</ActionButton>
   </div>
 }

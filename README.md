@@ -1,20 +1,20 @@
 # Remote Codex Chat
 
-A single-user phone-friendly browser interface to **Codex running on your Windows PC**. The browser talks to FastAPI over HTTP/WebSocket; FastAPI owns authentication, the project allowlist, a SQLite conversation index, and a `CodexBridge` that starts the local `codex app-server` over stdio. For remote access, an HTTPS tunnel forwards only to FastAPI on loopback. The app-server is never published and the browser never receives Codex credentials or arbitrary filesystem access.
+Удобный для телефона браузерный интерфейс для **Codex, запущенного на вашем компьютере с Windows**. Браузер подключается к FastAPI по HTTP/WebSocket. FastAPI отвечает за вход, список разрешённых проектов, индекс чатов в SQLite и `CodexBridge`, который запускает локальный `codex app-server` через stdio. Для удалённого доступа HTTPS-туннель перенаправляет запросы только на FastAPI, доступный через loopback-интерфейс. `app-server` не публикуется в сети, а браузер не получает учётные данные Codex или произвольный доступ к файлам.
 
-This is a personal experimental application, not a hosted multi-user service. The [architecture](docs/architecture.md) and [accepted PoC notes](docs/poc/) explain the protocol and recovery decisions.
+Это личное экспериментальное приложение, а не многопользовательский сервис. Устройство приложения и решения по протоколу и восстановлению описаны в [архитектуре](docs/architecture.md) и [принятых заметках PoC](docs/poc/).
 
-## Prerequisites
+## Что понадобится
 
-- Windows with PowerShell, Git, [uv](https://docs.astral.sh/uv/getting-started/installation/), Node.js 24 and npm. `uv` installs the locked Python 3.12 environment (`requires-python >=3.12`).
-- [Codex CLI](https://developers.openai.com/codex/cli) on `PATH`, signed in **as the same Windows user that starts FastAPI**. Confirm `codex --version` and `codex login status`. The browser needs no OpenAI key. Test against `codex-cli 0.160.0` or revalidate protocol-sensitive behavior after changing it.
-- For access outside the PC: a CloudPub account/client and a registered HTTPS publication to `http://127.0.0.1:8765`. See the [remote-access evidence and phone checklist](docs/poc/RC-012-remote-access.md). Its physical-phone test is still pending.
+- Windows, PowerShell, Git, [uv](https://docs.astral.sh/uv/getting-started/installation/), Node.js 24 и npm. `uv` установит зафиксированное окружение Python 3.12 (`requires-python >=3.12`).
+- [Codex CLI](https://developers.openai.com/codex/cli) в `PATH`; вход выполнен **под той же учётной записью Windows, от которой запускается FastAPI**. Проверьте команды `codex --version` и `codex login status`. Ключ OpenAI в браузере не нужен. Проверяйте работу с `codex-cli 0.160.0`; после обновления повторно проверьте совместимость протокола.
+- Для доступа не с этого компьютера: учётная запись и клиент CloudPub, а также зарегистрированная публикация HTTPS на `http://127.0.0.1:8765`. См. [данные проверки удалённого доступа и список действий на телефоне](docs/poc/RC-012-remote-access.md). Проверка на реальном телефоне ещё не выполнена.
 
-Clone the repository and open PowerShell in its root. Commands below assume two or three separate PowerShell windows. `uv run` uses `backend/.venv`; `npm ci` replaces `frontend/node_modules` from the lockfile. The `.env.example` file is a **reference only**; the application does not load it automatically.
+Склонируйте репозиторий и откройте PowerShell в его корневой папке. Команды ниже рассчитаны на два или три отдельных окна PowerShell. `uv run` использует `backend/.venv`; `npm ci` пересоздаёт `frontend/node_modules` по lock-файлу. `.env.example` — **только пример**: приложение не загружает его автоматически.
 
-## Local development
+## Локальная разработка
 
-Install dependencies from both committed lockfiles:
+Установите зависимости по lock-файлам:
 
 ```powershell
 cd backend
@@ -22,16 +22,16 @@ uv sync --locked --dev
 uv run python scripts/hash_password.py
 ```
 
-The password script asks twice and prints an Argon2id **hash**, not the password. Keep both private. In this backend shell, set the printed hash in the process environment (PowerShell history may retain a pasted hash; a private process manager is preferable for routine use):
+Скрипт дважды запросит пароль и выведет его хеш Argon2id, а не сам пароль. Не передавайте пароль и хеш другим людям. Задайте напечатанный хеш в окружении процесса backend (история PowerShell может сохранить вставленный хеш; для постоянной работы лучше использовать закрытый менеджер процессов):
 
 ```powershell
-$env:RC_PASSWORD_HASH = '<private Argon2id hash>'
+$env:RC_PASSWORD_HASH = '<закрытый хеш Argon2id>'
 $env:RC_AUTH_MODE = 'local'
 $env:RC_PUBLIC_ORIGIN = 'http://localhost:5173'
 uv run uvicorn app:app --host 127.0.0.1 --port 8000
 ```
 
-In a second shell:
+Во втором окне:
 
 ```powershell
 cd frontend
@@ -39,25 +39,25 @@ npm ci
 npm run dev -- --host localhost --port 5173 --strictPort
 ```
 
-Open `http://localhost:5173`, log in with the original password, choose a project, and start a conversation. Vite proxies `/auth` and `/ws` to the loopback backend. Origin matching is exact: if you change the host or port, update `RC_PUBLIC_ORIGIN` before starting FastAPI. `127.0.0.1` and `localhost` are different origins.
+Откройте `http://localhost:5173`, войдите с исходным паролем, выберите проект и начните чат. Vite перенаправляет `/auth` и `/ws` на локальный backend. Адрес источника должен совпадать полностью: если меняете имя хоста или порт, перед запуском FastAPI обновите `RC_PUBLIC_ORIGIN`. `127.0.0.1` и `localhost` считаются разными адресами.
 
-## Configuration and project allowlist
+## Настройка и список проектов
 
-Set variables in the **backend process environment**. Defaults and safe placeholders are in [.env.example](.env.example). A private `.env` may be loaded externally by a process manager; `uvicorn` does not read it by default.
+Задавайте переменные в окружении процесса **backend**. Значения по умолчанию и безопасные примеры приведены в [.env.example](.env.example). Закрытый `.env` можно подключить через менеджер процессов; `uvicorn` сам его не загружает.
 
-| Variable | Purpose / default |
+| Переменная | Назначение и значение по умолчанию |
 | --- | --- |
-| `RC_PASSWORD_HASH` | Required Argon2id hash from `scripts/hash_password.py`; never the plaintext password. |
-| `RC_AUTH_MODE` | `local` (default) or `remote`. Remote requires HTTPS and a built frontend. |
-| `RC_PUBLIC_ORIGIN` | Exact browser origin, with no path or trailing slash. Defaults to `http://localhost:5173` in local mode; required in remote mode. |
-| `RC_PROJECTS` | JSON array of allowed `{id,name,path}` entries; absolute existing directories only. First is default. Overrides `RC_PROJECT_PATH`. |
-| `RC_PROJECT_PATH` | Legacy one-project fallback; default is this repository's root. |
-| `RC_DATABASE_PATH` | Conversation index; default `backend/data/conversations.sqlite3`. |
-| `RC_AUTH_DATABASE_PATH` | Session database; default `backend/data/auth.sqlite3`. |
-| `RC_FRONTEND_DIST` | Built frontend directory; default `frontend/dist`. |
-| `RC_EXPERIMENTAL_FEATURES` | `1` opts into experimental Codex methods; disabled by default. |
+| `RC_PASSWORD_HASH` | Обязательный хеш Argon2id из `scripts/hash_password.py`; не задавайте обычный пароль. |
+| `RC_AUTH_MODE` | `local` (по умолчанию) или `remote`. Для `remote` нужны HTTPS и собранный frontend. |
+| `RC_PUBLIC_ORIGIN` | Точный адрес браузера без пути и завершающего `/`. В локальном режиме по умолчанию `http://localhost:5173`; в удалённом обязателен. |
+| `RC_PROJECTS` | JSON-массив разрешённых записей `{id,name,path}`; нужны существующие абсолютные пути. Первый проект выбирается по умолчанию. Переопределяет `RC_PROJECT_PATH`. |
+| `RC_PROJECT_PATH` | Устаревший запасной вариант для одного проекта; по умолчанию — корень этого репозитория. |
+| `RC_DATABASE_PATH` | Индекс чатов; по умолчанию `backend/data/conversations.sqlite3`. |
+| `RC_AUTH_DATABASE_PATH` | База сессий; по умолчанию `backend/data/auth.sqlite3`. |
+| `RC_FRONTEND_DIST` | Каталог собранного frontend; по умолчанию `frontend/dist`. |
+| `RC_EXPERIMENTAL_FEATURES` | Значение `1` включает экспериментальные методы Codex; по умолчанию отключены. |
 
-For multiple projects, set `RC_PROJECTS` before starting the backend. In PowerShell, generating JSON from objects avoids backslash escaping errors:
+Чтобы добавить несколько проектов, задайте `RC_PROJECTS` до запуска backend. В PowerShell удобно получить JSON из объектов — так не придётся вручную экранировать обратные косые черты:
 
 ```powershell
 $projects = @(
@@ -67,26 +67,26 @@ $projects = @(
 $env:RC_PROJECTS = ConvertTo-Json -InputObject $projects -Compress -Depth 3
 ```
 
-Replace those example paths with existing local directories. Browser requests contain only IDs; unknown project IDs and unavailable directories are rejected by the server. Do not grant access to a broad directory if Codex should work only in one project.
+Замените примеры путей на существующие каталоги компьютера. Браузер отправляет только ID проекта; сервер отклоняет неизвестные ID и недоступные каталоги. Не открывайте Codex доступ к родительскому каталогу, если ему нужна только одна папка проекта.
 
-## Production build and selected tunnel
+## Сборка и выбранный туннель
 
-Build and start in this order: configure projects and password, build frontend, start backend, confirm loopback health, then start **one** CloudPub publication. From `frontend/`, run `npm ci` and `npm run build`. From `backend/`, run `uv sync --locked --dev` (or `uv sync --locked --no-dev` for runtime only), then:
+Выполняйте шаги по порядку: настройте проекты и пароль, соберите frontend, запустите backend, проверьте доступность loopback, затем запустите **одну** публикацию CloudPub. Из `frontend/` выполните `npm ci` и `npm run build`. Из `backend/` выполните `uv sync --locked --dev` (или `uv sync --locked --no-dev`, если зависимости разработки не нужны), затем:
 
 ```powershell
-$env:RC_PASSWORD_HASH = '<private Argon2id hash>'
+$env:RC_PASSWORD_HASH = '<закрытый хеш Argon2id>'
 $env:RC_AUTH_MODE = 'remote'
-$env:RC_PUBLIC_ORIGIN = 'https://<assigned-host>.cloudpub.ru'
+$env:RC_PUBLIC_ORIGIN = 'https://<назначенный-хост>.cloudpub.ru'
 uv run uvicorn app:app --host 127.0.0.1 --port 8765
 ```
 
-Get the exact assigned origin and publication GUID from the CloudPub client while the publication is stopped. Register the service target as **`http://127.0.0.1:8765`**. In another shell run `clo start <publication-GUID>` and leave it open. Avoid `clo run` (it starts all services) and concurrent `clo` commands on the same configuration while the publication is active; the [RC-012 test](docs/poc/RC-012-remote-access.md) observed client interference. Open the assigned HTTPS URL on the phone. Keep the backend to one worker because the bridge and login throttle are process-local. If your CloudPub version changes, consult its current CLI help/docs for the exact registration command.
+Узнайте точный адрес и GUID публикации в клиенте CloudPub, пока публикация остановлена. В качестве адреса службы укажите **`http://127.0.0.1:8765`**. В другом окне запустите `clo start <GUID-публикации>` и оставьте окно открытым. Не используйте `clo run` (он запускает все службы) и не запускайте одновременно несколько команд `clo` с одной конфигурацией, пока публикация активна: в [проверке RC-012](docs/poc/RC-012-remote-access.md) замечены конфликты клиента. Откройте назначенный HTTPS-адрес на телефоне. Оставьте один процесс backend: bridge и ограничитель частоты входа хранят состояние в памяти процесса. Если версия CloudPub изменилась, проверьте актуальные команды в справке или документации клиента.
 
-`GET /health` is public and reports process liveness; authenticated `GET /ready` reports Codex bridge readiness. Serve the frontend and API on the same HTTPS origin. Never bind FastAPI or `codex app-server` to a public interface. Keep the CloudPub token in its own client configuration and the two SQLite files in private persistent storage. Sessions use an HttpOnly host-only cookie; remote cookies require HTTPS. Logout revokes the session and closes its chat socket. Do not copy password hashes, cookies, tunnel credentials, or account data into the browser bundle or Git.
+`GET /health` открыт и сообщает, что процесс работает; для `GET /ready` требуется вход, он сообщает о готовности Codex bridge. Обслуживайте frontend и API на одном HTTPS-адресе. Не публикуйте FastAPI или `codex app-server` на внешнем сетевом интерфейсе. Храните токен CloudPub в конфигурации клиента, а две базы SQLite — в закрытом постоянном каталоге. Сессия использует cookie `HttpOnly` только для текущего хоста; удалённым cookie требуется HTTPS. При выходе сессия отзывается и чат-сокет закрывается. Не копируйте хеши паролей, cookie, данные туннеля или аккаунта в браузерную сборку или Git.
 
-## Checks and troubleshooting
+## Проверки и устранение неполадок
 
-Run the same checks as [GitHub Actions](.github/workflows/checks.yml):
+Запустите те же проверки, что и в [GitHub Actions](.github/workflows/checks.yml):
 
 ```powershell
 cd backend
@@ -101,10 +101,10 @@ npm test
 npm run build
 ```
 
-With a built frontend and a signed-in local Codex CLI, run `cd backend; uv run --no-sync python scripts/rc014_local_probe.py` for a real loopback smoke test. It uses a random temporary password, project, and databases, starts FastAPI on `127.0.0.1:8766`, and stops it afterward. Port 8766 must be free. This checks the application path, but does not replace the physical-phone tunnel test.
+Для локальной сквозной проверки с собранным frontend и выполненным входом в Codex CLI запустите `cd backend; uv run --no-sync python scripts/rc014_local_probe.py`. Скрипт использует случайный временный пароль, проект и базы данных, запускает FastAPI на `127.0.0.1:8766` и останавливает его после проверки. Порт 8766 должен быть свободен. Такая проверка охватывает работу приложения, но не заменяет проверку туннеля на реальном телефоне.
 
-If backend startup fails, confirm `RC_PASSWORD_HASH` starts with `$argon2id$`, `codex` is on `PATH` and signed in for this Windows user, the project directories exist, and `frontend/dist/index.html` exists in remote mode. If login or WebSocket fails, compare the browser's exact scheme/host/port with `RC_PUBLIC_ORIGIN`, and use HTTPS in remote mode. A public `/health` success does not mean `/ready` or login works. If the tunnel returns 503 but loopback `/health` works, inspect the foreground CloudPub client and restart only the registered publication. If a turn's outcome is uncertain after disconnection, review the persisted conversation before resubmitting; prompts are not replayed automatically. See [recovery behavior](docs/poc/RC-013-resilience.md).
+Если backend не запускается, проверьте, что `RC_PASSWORD_HASH` начинается с `$argon2id$`, `codex` доступен через `PATH` и выполнен вход для текущего пользователя Windows, каталоги проектов существуют, а в удалённом режиме есть `frontend/dist/index.html`. Если не удаётся войти или подключить WebSocket, сверьте схему, имя хоста и порт браузера с `RC_PUBLIC_ORIGIN`; в удалённом режиме используйте HTTPS. Успешный ответ `/health` не гарантирует, что работает `/ready` или вход. Если туннель возвращает 503, а loopback `/health` отвечает, проверьте открытый клиент CloudPub и перезапустите только зарегистрированную публикацию. Если после обрыва неизвестен результат ответа Codex, сначала проверьте сохранённую переписку; запросы автоматически не отправляются повторно. Подробности — в [описании восстановления](docs/poc/RC-013-resilience.md).
 
-The UI supports one browser connection and one active turn at a time. Long conversation history has no native pagination. Model and reasoning options come from the current Codex runtime; optional experimental collaboration and user-input methods may disappear or fail. Usage data can be unavailable or delayed. Approvals appear only when Codex actually requests one; file approvals show limited scope and require explicit acknowledgement. The physical-phone, normal VPN, and 10-minute tunnel acceptance matrix remains [unverified](docs/poc/RC-012-remote-access.md).
+Интерфейс поддерживает одно подключение браузера и один активный ответ за раз. Встроенной постраничной навигации по длинной истории нет. Модели и уровни рассуждений поступают от текущей версии Codex; необязательные экспериментальные режимы совместной работы и запросы ввода могут исчезнуть или завершиться ошибкой. Сведения об использовании могут быть недоступны или приходить с задержкой. Одобрение появляется только по запросу Codex; для операций с файлами показывается ограниченная информация, и требуется явное подтверждение. Проверки на физическом телефоне, через обычный VPN и десятиминутная проверка туннеля пока [не выполнены](docs/poc/RC-012-remote-access.md).
 
-After upgrading Codex, record `codex --version`, rerun the backend and frontend checks, then validate live `model/list`, thread creation/resume/read, prompt streaming, Stop, approvals (if triggered), usage, and reconnect through the real application. Compare any changed request/notification shapes with the [protocol notes](docs/poc/RC-002-protocol-verification.md) and [capability research](docs/poc/RC-005-capabilities-research.md). A passing fake app-server test does not prove compatibility with a new Codex binary.
+После обновления Codex запишите результат `codex --version`, повторите проверки backend и frontend, затем проверьте через приложение `model/list`, создание/возобновление/чтение чата, потоковый ответ, остановку, одобрения (если появятся), сведения об использовании и переподключение. Сравните изменившиеся формы запросов и уведомлений с [заметками о протоколе](docs/poc/RC-002-protocol-verification.md) и [исследованием возможностей](docs/poc/RC-005-capabilities-research.md). Успешная проверка с имитацией `app-server` не доказывает совместимость с новой версией Codex.

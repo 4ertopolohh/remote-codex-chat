@@ -12,6 +12,6 @@ type Props = {
 export function ProjectSelector({ projects, selectedId, disabled, onSelect }: Props) {
   if (projects.length === 0) return null
   const options = projects.map(project => ({ value: project.id, label: project.name }))
-  if (selectedId === null) options.unshift({ value: '', label: 'Select project' })
-  return <SelectControl label="Project" value={selectedId ?? ''} options={options} disabled={disabled} onChange={onSelect} className={styles.project} />
+  if (selectedId === null) options.unshift({ value: '', label: 'Выберите проект' })
+  return <SelectControl label="Проект" value={selectedId ?? ''} options={options} disabled={disabled} onChange={onSelect} className={styles.project} />
 }

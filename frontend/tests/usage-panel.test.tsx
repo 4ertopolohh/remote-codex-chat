@@ -30,10 +30,10 @@ test('usage displays only runtime values for flexible and sparse limits', () => 
     sparse: { primary: { window_duration_mins: 60 } },
   }, ordinary_usage_allowed: null })
   expect(screen.getByText('Custom')).toBeTruthy()
-  expect(screen.getByText('42% used')).toBeTruthy()
-  expect(screen.getByText('7% used')).toBeTruthy()
+  expect(screen.getByText('Использовано: 42%')).toBeTruthy()
+  expect(screen.getByText('Использовано: 7%')).toBeTruthy()
   expect(screen.getByText('sparse')).toBeTruthy()
-  expect(screen.queryByText('Reset now')).toBeNull()
+  expect(screen.queryByText('Сброс: сейчас')).toBeNull()
 })
 
 test('usage errors remain local and chat remains usable', () => {
@@ -41,10 +41,10 @@ test('usage errors remain local and chat remains usable', () => {
   const socket = FakeSocket.instances[0]
   socket.emit({ type: 'ready' })
   socket.emit({ type: 'usage', status: 'error', rate_limits: null, rate_limits_by_id: {}, ordinary_usage_allowed: null })
-  expect(screen.getByText('Usage information is unavailable')).toBeTruthy()
+  expect(screen.getByText('Сведения об использовании недоступны.')).toBeTruthy()
   socket.emit({ type: 'conversation_selected', conversation: { id: 'c1', project_id: 'default', title: 'Chat', created_at: 'now', updated_at: 'now' }, messages: [] })
-  fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'hello' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+  fireEvent.change(screen.getByLabelText('Сообщение'), { target: { value: 'hello' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
   expect(socket.commands()).toContainEqual(expect.objectContaining({ type: 'submit_prompt', text: 'hello', request_id: expect.any(String) }))
 })
 
@@ -52,11 +52,11 @@ test('sparse runtime updates keep known windows and unsupported runtime is expli
   render(<App />)
   const socket = FakeSocket.instances[0]
   socket.emit({ type: 'usage', status: 'unsupported', rate_limits: null, rate_limits_by_id: {}, ordinary_usage_allowed: null })
-  expect(screen.getByText('Usage information is not supported by this Codex runtime.')).toBeTruthy()
+  expect(screen.getByText('Эта версия Codex не предоставляет сведения об использовании.')).toBeTruthy()
   socket.emit({ type: 'usage', status: 'available', rate_limits: { limit_id: 'dynamic', primary: { used_percent: 10, window_duration_mins: 60 } }, rate_limits_by_id: {}, ordinary_usage_allowed: null })
   socket.emit({ type: 'usage_update', rate_limits: { limit_id: 'dynamic', primary: { used_percent: 20 } } })
-  expect(screen.getByText('20% used')).toBeTruthy()
-  expect(screen.getByText('60 min window')).toBeTruthy()
+  expect(screen.getByText('Использовано: 20%')).toBeTruthy()
+  expect(screen.getByText('Период: 1 час')).toBeTruthy()
   socket.emit({ type: 'turn_completed', status: 'completed' })
   expect(socket.commands()).toContainEqual({ type: 'read_usage' })
 })
@@ -67,5 +67,5 @@ test('a newly announced runtime bucket becomes visible', () => {
   socket.emit({ type: 'usage', status: 'available', rate_limits: null, rate_limits_by_id: { first: { primary: { used_percent: 10 } } }, ordinary_usage_allowed: null })
   socket.emit({ type: 'usage_update', rate_limits: { limit_id: 'new_bucket', primary: { used_percent: 25 } } })
   expect(screen.getByText('new_bucket')).toBeTruthy()
-  expect(screen.getByText('25% used')).toBeTruthy()
+  expect(screen.getByText('Использовано: 25%')).toBeTruthy()
 })

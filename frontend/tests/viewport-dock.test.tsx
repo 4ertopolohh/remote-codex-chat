@@ -22,7 +22,7 @@ test('visual viewport movement preserves the reader position in a long request',
   Object.defineProperty(viewport, 'height', { value: 400 })
   vi.stubGlobal('visualViewport', viewport)
   render(<App />)
-  const dock = document.querySelector('[aria-label="Chat workspace"] > div:last-child') as HTMLDivElement
+  const dock = document.querySelector('[aria-label="Область чата"] > div:last-child') as HTMLDivElement
   Object.defineProperty(dock, 'scrollHeight', { value: 500 })
   dock.scrollTop = 10
   act(() => viewport.dispatchEvent(new Event('scroll')))
@@ -37,7 +37,7 @@ test('keyboard opening for user input preserves its card position', () => {
   vi.stubGlobal('visualViewport', viewport)
   render(<App />)
   FakeSocket.instance.emit({ type: 'pending_request', id: 'request-1', kind: 'user_input', details: { questions: [{ id: 'name', header: 'Name', question: 'What is your name?', options: null, is_other: false, is_secret: false }] } })
-  const dock = document.querySelector('[aria-label="Chat workspace"] > div:last-child') as HTMLDivElement
+  const dock = document.querySelector('[aria-label="Область чата"] > div:last-child') as HTMLDivElement
   Object.defineProperty(dock, 'scrollHeight', { value: 500 })
   const field = screen.getByLabelText('Name: What is your name?')
   const reveal = vi.fn()

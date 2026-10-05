@@ -7,7 +7,7 @@ afterEach(cleanup)
 
 test('stream follows the bottom until the reader scrolls upward', () => {
   const view = render(<Conversation messages={[{ role: 'assistant', text: 'First' }]} />)
-  const region = screen.getByRole('region', { name: 'Conversation' })
+  const region = screen.getByRole('region', { name: 'Переписка' })
   let height = 400
   Object.defineProperties(region, {
     clientHeight: { configurable: true, get: () => 200 },
@@ -28,7 +28,7 @@ test('stream follows the bottom until the reader scrolls upward', () => {
 
 test('switching conversations starts at the latest message after reading older content', () => {
   const view = render(<Conversation conversationId="first" messages={[{ role: 'assistant', text: 'Earlier' }]} />)
-  const region = screen.getByRole('region', { name: 'Conversation' })
+  const region = screen.getByRole('region', { name: 'Переписка' })
   Object.defineProperties(region, {
     clientHeight: { configurable: true, get: () => 200 },
     scrollHeight: { configurable: true, get: () => 500 },
