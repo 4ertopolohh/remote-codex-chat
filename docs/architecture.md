@@ -58,9 +58,13 @@ checks are separate and do not run in automated tests.
 
 ## Conversation recovery (RC-004)
 
-`backend/conversation_store.py` keeps an application index in SQLite. Schema version 1
-contains only application conversation ID, selected project ID, Codex
+`backend/conversation_store.py` keeps an application index in SQLite. The conversations
+table contains the application conversation ID, selected project ID, Codex
 thread ID, a short title derived from the first prompt, and creation/update timestamps.
+Schema version 2 adds a `submissions` table. A browser-generated `request_id` is
+reserved there before the non-idempotent `turn/start` call; replaying that ID cannot
+start a second turn, including after a backend restart. The reservation is not proof
+that Codex executed the turn. Existing version 1 databases migrate in place.
 The file defaults to `backend/data/conversations.sqlite3` and can be set with
 `RC_DATABASE_PATH`. The browser sees the application ID and metadata, never a project
 filesystem path. Codex remains the execution and transcript source of truth.
@@ -74,6 +78,10 @@ The application then calls `thread/read` with `includeTurns: true` to rebuild th
 text-only display from persisted user and agent items. Browser local storage remembers
 only the selected application ID; on reload/reconnect it requests the list and selects
 that ID. After a backend restart, the same SQLite file supplies the thread ID.
+Tab session storage also retains the IDs of conversations whose submitted turn has
+no observed terminal event. On reload, those conversations remain marked unknown
+until the user reviews history and explicitly continues; the browser never replays
+the prompt automatically.
 Unavailable or deleted Codex threads return `thread_unavailable` and the user can
 start another conversation. Missing application IDs return `conversation_not_found`.
 

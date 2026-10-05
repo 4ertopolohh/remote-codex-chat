@@ -251,18 +251,20 @@ export function useChat(onAuthRequired?: () => void) {
             }
             break
           }
-          case 'conversation_selected':
+          case 'conversation_selected': {
+            const uncertain = hasUncertainTurn(event.conversation.id)
             selectedIdRef.current = event.conversation.id
             setSelectedId(event.conversation.id)
             window.localStorage.setItem(savedConversationKey, event.conversation.id)
             selectionPendingRef.current = false
             setSelecting(false)
             setMessages(event.messages)
-            setTurn(hasUncertainTurn(event.conversation.id) ? 'unknown' : 'idle')
-            setAgentStatus(hasUncertainTurn(event.conversation.id) ? 'unknown' : 'idle')
+            setTurn(uncertain ? 'unknown' : 'idle')
+            setAgentStatus(uncertain ? 'unknown' : 'idle')
             setError(null)
             ws.send(JSON.stringify({ type: 'list_conversations' }))
             break
+          }
           case 'turn_started': pendingPromptRef.current = null; setTurn('running'); setActiveTurn(true); setStopPending(false); setAgentStatus('starting'); break
           case 'steer_accepted': setMessages(previous => [...previous, { role: 'user', text: event.text }]); break
           case 'assistant_delta':
