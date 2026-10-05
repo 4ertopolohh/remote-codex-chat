@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ActionButton } from '../ActionButton/ActionButton'
 import type { PendingRequest } from '../../chat/useChat'
 import { buildUserInputAnswers, canApprove, requestOutcomeText, requestTitle, requiresUnknownFileAcknowledgement } from '../../chat/requestPresentation'
 import styles from './ApprovalCard.module.scss'
@@ -21,10 +22,9 @@ export function ApprovalCard({ request, onApproval, onInput }: { request: Pendin
 
   return <section className={styles.card} aria-label={title}>
     <h2>{title}</h2>
-    {request.kind === 'command' && <><p>Command: <code>{request.details.command ?? 'Unavailable'}</code></p>{request.details.cwd && <p>Working directory: <code>{request.details.cwd}</code></p>}</>}
+    {request.kind === 'command' && <p>Command: <code>{request.details.command ?? 'Unavailable'}</code></p>}
     {request.kind === 'file_change' && <p>File change request</p>}
     {request.details.reason && <p>Reason: {request.details.reason}</p>}
-    {request.details.grantRoot && <p>Write root: <code>{request.details.grantRoot}</code></p>}
     {requiresUnknownFileAcknowledgement(request) && request.status === 'pending' && <label className={styles.acknowledge}><input type="checkbox" checked={acknowledged} disabled={!pending} onChange={event => setAcknowledged(event.target.checked)} /> Codex did not provide a list of changed files. I understand approval may allow file changes beyond the description shown here.</label>}
     {request.kind === 'user_input' && questions.map(question => <div className={styles.question} key={question.id}>
       <label htmlFor={`${request.id}-${question.id}`}>{question.header}: {question.question}</label>
@@ -37,9 +37,9 @@ export function ApprovalCard({ request, onApproval, onInput }: { request: Pendin
     </div>)}
     {request.status !== 'pending' && <p role="status">{requestOutcomeText(request)}</p>}
     {submitting && request.status === 'pending' && <p role="status">Sending response…</p>}
-    {request.kind === 'user_input' ? <button type="button" disabled={!pending || !inputAnswers} onClick={submitInput}>Send answer</button> : <div className={styles.actions}>
-      <button type="button" disabled={!pending} onClick={() => { setSubmitting(true); onApproval(request.id, 'decline') }}>Decline</button>
-      <button type="button" disabled={!pending || !canApprove(request, acknowledged)} onClick={() => { setSubmitting(true); onApproval(request.id, 'accept') }}>Approve</button>
+    {request.kind === 'user_input' ? <ActionButton disabled={!pending || !inputAnswers} onClick={submitInput}>Send answer</ActionButton> : <div className={styles.actions}>
+      <ActionButton tone="secondary" disabled={!pending} onClick={() => { setSubmitting(true); onApproval(request.id, 'decline') }}>Decline</ActionButton>
+      <ActionButton disabled={!pending || !canApprove(request, acknowledged)} onClick={() => { setSubmitting(true); onApproval(request.id, 'accept') }}>Approve</ActionButton>
     </div>}
   </section>
 }

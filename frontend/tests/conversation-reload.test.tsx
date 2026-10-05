@@ -70,6 +70,19 @@ test('failed switch clears stale transcript and allows a new conversation', () =
   expect(screen.getByRole('button', { name: 'New conversation' }).hasAttribute('disabled')).toBe(false)
 })
 
+test('switching conversations hides the previous transcript while selection is pending', () => {
+  render(<App />)
+  const socket = FakeSocket.instances[0]
+  socket.emit({ type: 'ready' })
+  socket.emit({ type: 'conversation_list', conversations })
+  socket.emit({ type: 'conversation_selected', conversation: conversations[0], messages: [{ role: 'user', text: 'Earlier prompt' }] })
+  fireEvent.click(screen.getByRole('button', { name: 'Stale' }))
+  expect(screen.queryByText('Earlier prompt')).toBeNull()
+  expect(screen.getByRole('heading', { name: 'Opening conversation…', level: 1 })).toBeTruthy()
+  socket.emit({ type: 'conversation_selected', conversation: conversations[1], messages: [{ role: 'assistant', text: 'New answer' }] })
+  expect(screen.getByText('New answer')).toBeTruthy()
+})
+
 test('project switch shows only that project conversations and survives reload', () => {
   const projects = [{ id: 'first', name: 'First' }, { id: 'second', name: 'Second' }]
   const page = render(<App />)

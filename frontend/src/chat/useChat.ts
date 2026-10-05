@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 
-type Connection = 'connecting' | 'connected' | 'disconnected'
+type Connection = 'connecting' | 'connected' | 'disconnected' | 'reconnecting'
 type Turn = 'idle' | 'running' | 'completed' | 'failed' | 'interrupted'
 export type Message = { role: 'user' | 'assistant'; text: string }
 export type ConversationInfo = { id: string; project_id: string; title: string; created_at: string; updated_at: string }
@@ -8,7 +8,7 @@ export type ProjectInfo = { id: string; name: string }
 export type ModelCapability = { id: string; model: string; display_name: string; reasoning_efforts: string[]; default_reasoning_effort: string | null; is_default: boolean }
 export type CollaborationCapability = { name: string; mode: string; model: string | null; reasoning_effort: string | null }
 export type InputQuestion = { id: string; header: string; question: string; options: { label: string; description: string }[] | null; is_other: boolean; is_secret: boolean }
-export type PendingRequest = { id: string; kind: 'command' | 'file_change' | 'user_input'; details: { command?: string; cwd?: string; reason?: string; grantRoot?: string; kind?: string; questions?: InputQuestion[] }; status: 'pending' | 'completed' | 'expired' | 'cancelled' }
+export type PendingRequest = { id: string; kind: 'command' | 'file_change' | 'user_input'; details: { command?: string; reason?: string; kind?: string; questions?: InputQuestion[] }; status: 'pending' | 'completed' | 'expired' | 'cancelled' }
 
 type ServerEvent =
   | { type: 'ready' }
@@ -115,7 +115,7 @@ export function useChat() {
     let retry: ReturnType<typeof setTimeout> | undefined
     function connect() {
       if (disposed) return
-      setConnection('connecting')
+      setConnection(socket.current ? 'reconnecting' : 'connecting')
       const ws = new WebSocket(`${scheme}//${window.location.host}/ws/chat`)
       socket.current = ws
       ws.onmessage = ({ data }: MessageEvent<string>) => {

@@ -93,11 +93,11 @@ export function App() {
 
     <section className={`${styles.workspace} ${responsive.workspace}`} aria-label="Chat workspace" inert={isNarrow && historyOpen} aria-hidden={isNarrow && historyOpen}>
       <div className={`${styles.conversationHeader} ${narrow.conversationHeader}`}>
-        <div className={styles.conversationTitle}><span className={styles.eyebrow}>CONVERSATION</span><h1>{current?.title ?? (chat.selecting ? 'Opening conversation…' : 'New conversation')}</h1></div>
+        <div className={styles.conversationTitle}><span className={styles.eyebrow}>CONVERSATION</span><h1>{chat.selecting ? 'Opening conversation…' : current?.title ?? 'New conversation'}</h1></div>
         <span className={`${styles.projectName} ${narrow.projectName}`}>{chat.projects.find(item => item.id === chat.selectedProjectId)?.name ?? 'No project'}</span>
       </div>
-      {chat.connection !== 'connected' && <div className={styles.connectionNotice} role="status">{chat.connection === 'connecting' ? 'Connecting to Codex…' : 'Connection lost. Reconnecting…'}</div>}
-      <Conversation conversationId={chat.selectedId} messages={chat.messages} loading={chat.selecting} />
+      {chat.connection !== 'connected' && <div className={styles.connectionNotice} role="status">{chat.connection === 'connecting' ? 'Connecting to Codex…' : chat.connection === 'reconnecting' ? 'Reconnecting to Codex…' : 'Connection lost. Reconnecting…'}</div>}
+      <Conversation conversationId={chat.selectedId} messages={chat.selecting ? [] : chat.messages} loading={chat.selecting} />
       <div ref={bottomDock} className={`${styles.bottomDock} ${narrow.bottomDock} ${short.bottomDock}`}>
         {chat.requests.length > 0 && <div className={styles.requests} aria-label="Requests needing attention">{chat.requests.map(request => <ApprovalCard key={request.id} request={request} onApproval={chat.answerApproval} onInput={chat.answerUserInput} />)}</div>}
         <TurnStatus turn={chat.turn} agentStatus={chat.agentStatus} error={chat.error} />

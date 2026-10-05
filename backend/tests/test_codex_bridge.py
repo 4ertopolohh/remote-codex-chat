@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
+
 from codex_bridge import (
     AgentMessageDelta,
     CodexBridge,
@@ -265,9 +266,9 @@ async def test_two_approvals_map_to_their_original_server_requests(
         HANDSHAKE
         + """
 send({'method': 'item/commandExecution/requestApproval', 'id': 'command-rpc',
-      'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'command': 'echo hi'}})
+      'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'command': 'echo hi', 'cwd': 'C:\\private'}})
 send({'method': 'item/fileChange/requestApproval', 'id': 'file-rpc',
-      'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'reason': 'write proof'}})
+      'params': {'threadId': 'thread-1', 'turnId': 'turn-1', 'reason': 'write proof', 'grantRoot': 'C:\\private'}})
 responses = [read(), read()]
 assert {'id': 'file-rpc', 'result': {'decision': 'accept'}} in responses
 assert {'id': 'command-rpc', 'result': {'decision': 'decline'}} in responses
@@ -281,6 +282,8 @@ sys.stdin.readline()
         assert isinstance(second, RequestPending)
         assert first.id != second.id
         assert (first.kind, second.kind) == ("command", "file_change")
+        assert first.details == {"command": "echo hi"}
+        assert second.details == {"reason": "write proof"}
         assert await bridge.answer_request(second.id, "accept")
         assert await bridge.answer_request(first.id, "decline")
         assert {

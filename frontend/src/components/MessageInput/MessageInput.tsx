@@ -1,4 +1,5 @@
 import { useRef, useState, type FormEvent } from 'react'
+import { ActionButton } from '../ActionButton/ActionButton'
 import styles from './MessageInput.module.scss'
 
 export function MessageInput({ onSend, onSteer, onStop, running, activeTurn, stopPending, disabled }: { onSend: (text: string) => boolean; onSteer: (text: string) => boolean; onStop: () => void; running: boolean; activeTurn: boolean; stopPending: boolean; disabled: boolean }) {
@@ -22,8 +23,8 @@ export function MessageInput({ onSend, onSteer, onStop, running, activeTurn, sto
     <label htmlFor="prompt">Message</label>
     <textarea ref={textarea} id="prompt" value={text} onChange={event => { setText(event.target.value); resize() }} rows={2} maxLength={10000} disabled={disabled} />
     <div className={styles.actions}>
-      {running && <button type="button" onClick={onStop} disabled={disabled || !activeTurn || stopPending}>Stop</button>}
-      <button type="submit" disabled={disabled || (running && (!activeTurn || stopPending)) || !text.trim()}>{running ? 'Steer active turn' : 'Send'}</button>
+      {running && <ActionButton tone="secondary" onClick={onStop} disabled={disabled || !activeTurn || stopPending}>Stop</ActionButton>}
+      <ActionButton type="submit" disabled={disabled || (running && (!activeTurn || stopPending)) || !text.trim()}>{running ? 'Steer active turn' : 'Send'}</ActionButton>
     </div>
   </form>
 }

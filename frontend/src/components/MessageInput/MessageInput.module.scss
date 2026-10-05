@@ -2,7 +2,3 @@
 .input label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .input textarea { width: 100%; min-height: 50px; max-height: 192px; resize: none; padding: var(--space-3) var(--space-4); border: var(--stroke); border-radius: var(--radius-field); background: var(--color-canvas); color: var(--color-ink); line-height: 1.4; }
 .actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
-.input button { min-height: 44px; padding: var(--space-2) var(--space-5); border: 0; border-radius: var(--radius-pill); background: var(--color-accent); color: var(--color-paper); font-family: var(--font-emphasis); font-size: 14px; transition: background-color var(--motion-relaxed), transform var(--motion-relaxed); }
-.input button[type='button'] { background: var(--color-ink); }
-.input button:hover:not(:disabled) { background: var(--color-accent-deep); transform: scale(.99); }
-.input button:disabled { background: var(--color-ink); opacity: .38; }

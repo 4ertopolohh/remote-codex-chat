@@ -52,11 +52,28 @@ test('approval card sends only a pending decision and shows its outcome', () => 
   socket.emit({ type: 'ready' })
   socket.emit({ type: 'pending_request', id: 'opaque-1', kind: 'command', details: { command: 'echo RC006_OK', cwd: 'C:\\repo' } })
   expect(screen.getByLabelText('Approval required')).toBeTruthy()
+  expect(screen.queryByText('C:\\repo')).toBeNull()
   fireEvent.click(screen.getByRole('button', { name: 'Approve' }))
   expect(socket.commands()).toContainEqual({ type: 'answer_approval', id: 'opaque-1', decision: 'accept' })
   expect(screen.getByRole('button', { name: 'Approve' }).hasAttribute('disabled')).toBe(true)
   socket.emit({ type: 'request_outcome', id: 'opaque-1', status: 'completed' })
   expect(screen.getByRole('heading', { name: 'Request completed' })).toBeTruthy()
+})
+
+test('a lost connection has distinct offline and reconnecting states', () => {
+  vi.useFakeTimers()
+  try {
+    render(<App />)
+    const socket = FakeSocket.instances[0]
+    socket.emit({ type: 'ready' })
+    act(() => socket.onclose?.())
+    expect(screen.getByText('Offline')).toBeTruthy()
+    act(() => vi.advanceTimersByTime(500))
+    expect(FakeSocket.instances).toHaveLength(2)
+    expect(screen.getByText('Reconnecting')).toBeTruthy()
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 test('user input card returns the selected answer shape', () => {

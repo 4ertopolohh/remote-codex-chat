@@ -509,9 +509,9 @@ class CodexBridge:
             )
             return
         fields = (
-            ("command", "cwd", "reason", "kind")
+            ("command", "reason", "kind")
             if kind == "command"
-            else ("reason", "grantRoot")
+            else ("reason",)
         )
         details: dict[str, object] = {
             key: params[key] for key in fields if isinstance(params.get(key), str)

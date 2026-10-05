@@ -1,0 +1,5 @@
+.button { min-height: 44px; padding: var(--space-2) var(--space-5); border: var(--stroke); border-radius: var(--radius-pill); background: var(--color-accent); color: var(--color-paper); font-family: var(--font-emphasis); font-size: 14px; transition: background-color var(--motion-relaxed), transform var(--motion-relaxed); }
+.button:hover:not(:disabled) { background: var(--color-accent-deep); transform: scale(.99); }
+.button:disabled { background: var(--color-ink); opacity: .38; }
+.secondary { background: var(--color-ink); }
+.secondary:hover:not(:disabled) { background: var(--color-muted); }
