@@ -60,3 +60,12 @@ test('sparse runtime updates keep known windows and unsupported runtime is expli
   socket.emit({ type: 'turn_completed', status: 'completed' })
   expect(socket.commands()).toContainEqual({ type: 'read_usage' })
 })
+
+test('a newly announced runtime bucket becomes visible', () => {
+  render(<App />)
+  const socket = FakeSocket.instances[0]
+  socket.emit({ type: 'usage', status: 'available', rate_limits: null, rate_limits_by_id: { first: { primary: { used_percent: 10 } } }, ordinary_usage_allowed: null })
+  socket.emit({ type: 'usage_update', rate_limits: { limit_id: 'new_bucket', primary: { used_percent: 25 } } })
+  expect(screen.getByText('new_bucket')).toBeTruthy()
+  expect(screen.getByText('25% used')).toBeTruthy()
+})

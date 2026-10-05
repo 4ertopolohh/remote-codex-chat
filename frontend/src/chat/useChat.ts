@@ -158,13 +158,13 @@ export function useChat() {
           case 'usage_update': setUsage(previous => {
             if (previous?.status !== 'available') return previous
             const id = event.rate_limits.limit_id
-            const prior = id ? previous.rate_limits_by_id[id] : undefined
+            const prior = id ? previous.rate_limits_by_id[id] ?? (previous.rate_limits?.limit_id === id ? previous.rate_limits : undefined) : undefined
             const merge = (current: UsageLimit | null | undefined): UsageLimit => ({ ...current, ...event.rate_limits,
               primary: current?.primary || event.rate_limits.primary ? { ...current?.primary, ...event.rate_limits.primary } : undefined,
               secondary: current?.secondary || event.rate_limits.secondary ? { ...current?.secondary, ...event.rate_limits.secondary } : undefined })
             return { ...previous,
-              rate_limits: merge(previous.rate_limits),
-              rate_limits_by_id: id && prior ? { ...previous.rate_limits_by_id, [id]: merge(prior) } : previous.rate_limits_by_id }
+              rate_limits: !id || previous.rate_limits?.limit_id === id ? merge(previous.rate_limits) : previous.rate_limits,
+              rate_limits_by_id: id ? { ...previous.rate_limits_by_id, [id]: merge(prior) } : previous.rate_limits_by_id }
           }); break
           case 'project_list': {
             setProjects(event.projects)

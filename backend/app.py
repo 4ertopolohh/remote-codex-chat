@@ -56,7 +56,6 @@ from codex_bridge import (
     RequestPending,
     ThreadStatusChanged,
     TurnCompleted,
-    UsageChanged,
 )
 from conversation_store import ConversationStore
 from projects import Project, ProjectAllowlist, ProjectUnavailable
@@ -169,6 +168,7 @@ def create_app(
         receive_task: asyncio.Task[object] | None = None
         event_task: asyncio.Task[object] | None = None
         usage_task: asyncio.Task[None] | None = None
+        usage_updates_task: asyncio.Task[None] | None = None
 
         async def discover_models() -> tuple[ModelCapability, ...]:
             try:
@@ -211,12 +211,19 @@ def create_app(
                 usage_task = asyncio.create_task(send_usage())
                 usage_task.add_done_callback(observe_background_task)
 
+        async def relay_usage_updates() -> None:
+            while True:
+                update = await bridge.next_usage_update()
+                await send_event(ws, UsageUpdate(rate_limits=update.rate_limits))
+
         try:
             if not bridge.ready:
                 await send_event(ws, ChatError(code="codex_unavailable"))
                 await ws.close(code=1011)
                 return
             await send_event(ws, Ready())
+            usage_updates_task = asyncio.create_task(relay_usage_updates())
+            usage_updates_task.add_done_callback(observe_background_task)
             while True:
                 try:
                     raw = await ws.receive_json()
@@ -416,8 +423,6 @@ def create_app(
                                 event.turn_id,
                             ) == (conversation.thread_id, turn_id):
                                 await send_event(ws, AssistantDelta(text=event.text))
-                            elif isinstance(event, UsageChanged):
-                                await send_event(ws, UsageUpdate(rate_limits=event.rate_limits))
                             elif (
                                 isinstance(event, ThreadStatusChanged)
                                 and event.thread_id == conversation.thread_id
@@ -581,6 +586,8 @@ def create_app(
         finally:
             if usage_task is not None and not usage_task.done():
                 usage_task.cancel()
+            if usage_updates_task is not None and not usage_updates_task.done():
+                usage_updates_task.cancel()
             if event_task is not None and event_task.done() and turn_id is not None:
                 try:
                     pending_event = event_task.result()

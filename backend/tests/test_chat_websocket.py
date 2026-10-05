@@ -40,6 +40,7 @@ class FakeBridge:
         self.answers: list[tuple[str, str]] = []
         self.usage: dict[str, object] | None = None
         self.usage_error = False
+        self.usage_updates: asyncio.Queue[UsageChanged] = asyncio.Queue()
 
     async def start(self) -> None:
         self.ready = True
@@ -68,6 +69,9 @@ class FakeBridge:
         if self.usage_error:
             raise OperationFailed("usage read failed")
         return self.usage or {"status": "unsupported", "rate_limits": None, "rate_limits_by_id": {}, "ordinary_usage_allowed": None}
+
+    async def next_usage_update(self) -> UsageChanged:
+        return await self.usage_updates.get()
 
 
     async def steer_turn(self, thread_id: str, turn_id: str, prompt: str) -> None:
@@ -136,10 +140,20 @@ def test_usage_update_during_turn_does_not_interrupt_stream(tmp_path: Path) -> N
         ws.send_json({"type": "submit_prompt", "text": "hello"})
         assert ws.receive_json()["type"] == "conversation_selected"
         assert ws.receive_json() == {"type": "turn_started"}
-        bridge.events.put_nowait(UsageChanged({"limit_id": "dynamic", "primary": {"used_percent": 20}}))
+        bridge.usage_updates.put_nowait(UsageChanged({"limit_id": "dynamic", "primary": {"used_percent": 20}}))
         bridge.events.put_nowait(AgentMessageDelta("thread-1", "turn-1", "hi"))
-        assert ws.receive_json() == {"type": "usage_update", "rate_limits": {"limit_id": "dynamic", "primary": {"used_percent": 20}}}
-        assert ws.receive_json() == {"type": "assistant_delta", "text": "hi"}
+        received = [ws.receive_json(), ws.receive_json()]
+        assert {"type": "usage_update", "rate_limits": {"limit_id": "dynamic", "primary": {"used_percent": 20}}} in received
+        assert {"type": "assistant_delta", "text": "hi"} in received
+
+
+def test_usage_update_is_delivered_while_idle(tmp_path: Path) -> None:
+    bridge = FakeBridge()
+    app = create_app(lambda: bridge, project=tmp_path, database=tmp_path / "conversations.sqlite3")
+    with TestClient(app) as client, client.websocket_connect("/ws/chat") as ws:
+        assert ws.receive_json() == {"type": "ready"}
+        bridge.usage_updates.put_nowait(UsageChanged({"limit_id": "fresh", "primary": {"used_percent": 30}}))
+        assert ws.receive_json() == {"type": "usage_update", "rate_limits": {"limit_id": "fresh", "primary": {"used_percent": 30}}}
 
 
 def test_prompt_streams_domain_events_and_completion(tmp_path: Path) -> None:

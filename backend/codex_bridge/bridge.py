@@ -119,7 +119,6 @@ BridgeEvent = (
     | ThreadStatusChanged
     | RequestPending
     | RequestFinished
-    | UsageChanged
 )
 _APPROVAL_METHODS = {
     "item/commandExecution/requestApproval": "command",
@@ -145,6 +144,7 @@ class CodexBridge:
     ):
         self._client = AppServerClient(command, request_timeout=request_timeout)
         self._events: asyncio.Queue[BridgeEvent | BridgeError] = asyncio.Queue()
+        self._usage_updates: asyncio.Queue[UsageChanged] = asyncio.Queue()
         self._pump: asyncio.Task[None] | None = None
         self._ready = False
         self._experimental_features = experimental_features
@@ -350,6 +350,9 @@ class CodexBridge:
             raise OperationFailed(str(exc)) from exc
         except AppServerError as exc:
             raise self._translate(exc) from exc
+
+    async def next_usage_update(self) -> UsageChanged:
+        return await self._usage_updates.get()
 
     async def start_turn(
         self,
@@ -628,7 +631,9 @@ class CodexBridge:
                     await self._register_server_request(incoming)
                     continue
                 event = self._map_notification(incoming)
-                if event is not None:
+                if isinstance(event, UsageChanged):
+                    self._usage_updates.put_nowait(event)
+                elif event is not None:
                     self._events.put_nowait(event)
         except asyncio.CancelledError:
             raise
@@ -646,7 +651,7 @@ class CodexBridge:
         value = params.get(key)
         return value if isinstance(value, str) else None
 
-    def _map_notification(self, event: ServerNotification) -> BridgeEvent | None:
+    def _map_notification(self, event: ServerNotification) -> BridgeEvent | UsageChanged | None:
         params = event.params
         if event.method == "account/rateLimits/updated":
             snapshot = normalize_usage_update(params)
