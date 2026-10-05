@@ -79,8 +79,8 @@ export function App({ onLogout, onAuthRequired, authError }: { onLogout?: () => 
 
   return <main className={`${styles.app} ${responsive.app} ${narrow.app}`}>
     <header className={`${styles.header} ${responsive.header}`}>
-      <div className={`${styles.brand} ${responsive.brand}`}><span className={styles.brandMark} aria-hidden="true">✳</span><div><strong>Codex</strong><small>Remote workspace</small></div></div>
-      <div className={styles.headerActions}>
+      <div className={`${styles.brand} ${responsive.brand}`}><span className={`${styles.brandMark} ${narrow.brandMark}`} aria-hidden="true">✳</span><div><strong>Codex</strong><small>Remote workspace</small></div></div>
+      <div className={`${styles.headerActions} ${responsive.headerActions}`}>
         <ConnectionStatus status={chat.connection} />
         {onLogout && <ActionButton tone="secondary" onClick={onLogout}>Sign out</ActionButton>}
         <button ref={historyTrigger} className={`${styles.historyToggle} ${responsive.historyToggle}`} type="button" aria-expanded={historyOpen} aria-controls="conversation-history" onClick={() => setHistoryOpen(value => !value)}>History</button>
@@ -97,7 +97,7 @@ export function App({ onLogout, onAuthRequired, authError }: { onLogout?: () => 
 
     <section className={`${styles.workspace} ${responsive.workspace}`} aria-label="Chat workspace" inert={isNarrow && historyOpen} aria-hidden={isNarrow && historyOpen}>
       <div className={`${styles.conversationHeader} ${narrow.conversationHeader}`}>
-        <div className={styles.conversationTitle}><span className={styles.eyebrow}>CONVERSATION</span><h1>{chat.selecting ? 'Opening conversation…' : current?.title ?? 'New conversation'}</h1></div>
+        <div className={`${styles.conversationTitle} ${narrow.conversationTitle}`}><span className={styles.eyebrow}>CONVERSATION</span><h1>{chat.selecting ? 'Opening conversation…' : current?.title ?? 'New conversation'}</h1></div>
         <span className={`${styles.projectName} ${narrow.projectName}`}>{chat.projects.find(item => item.id === chat.selectedProjectId)?.name ?? 'No project'}</span>
       </div>
       {authError && <div className={styles.connectionNotice} role="alert">{authError}</div>}

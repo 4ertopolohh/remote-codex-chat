@@ -3,6 +3,11 @@
 .status[data-status='connected']::before { background: var(--color-success); }
 .status[data-status='disconnected']::before { background: var(--color-danger); }
 @media (max-width: 480px) {
-  .status { width: 28px; height: 28px; padding: 0; justify-content: center; overflow: hidden; font-size: 0; }
+  .status { min-height: 28px; padding: var(--space-1) var(--space-2); gap: var(--space-1); font-size: 0; }
   .status::before { width: 10px; height: 10px; }
+  .status::after { font-size: 11px; }
+  .status[data-status='connected']::after { content: 'Online'; }
+  .status[data-status='connecting']::after { content: 'Wait'; }
+  .status[data-status='reconnecting']::after { content: 'Retry'; }
+  .status[data-status='disconnected']::after { content: 'Offline'; }
 }
