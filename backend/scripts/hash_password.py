@@ -1,4 +1,4 @@
-"""Generate an Argon2id password hash without placing the password in shell history."""
+"""Legacy helper for environment migration; new setups use configure.py init."""
 
 from getpass import getpass
 

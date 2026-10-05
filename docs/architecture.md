@@ -3,7 +3,11 @@
 ## Authentication (RC-011)
 
 `backend/auth.py` owns single-user password verification and server-side sessions. The
-operator supplies only an Argon2id hash through `RC_PASSWORD_HASH`. Login creates a
+operator stores an Argon2id hash with the local `scripts/configure.py` CLI. The versioned
+`backend/data/config.sqlite3` owns the hash, auth mode, exact public origin, and ordered
+project allowlist. If absent, legacy environment values are imported once. Existing
+SQLite configuration wins over stale legacy password/project values; explicit
+`RC_AUTH_MODE` and `RC_PUBLIC_ORIGIN` override only runtime settings. Login creates a
 random opaque ID in an `HttpOnly` cookie; SQLite stores its digest, a separate CSRF
 token, and an absolute expiry. `/auth/session` gives the browser only the CSRF token,
 and `/auth/logout` revokes the record and closes any active chat socket for it.
@@ -22,9 +26,8 @@ transport; there is one framing and JSON-RPC implementation.
 
 The browser connects to `/ws/chat` on FastAPI. It sends validated chat controls and
 answers to pending approval or user-input requests. The backend owns the project
-allowlist in `RC_PROJECTS` (a JSON array of `id`, `name`, and absolute `path`).
-The first entry is the default. With no array configured, `RC_PROJECT_PATH` or the
-repository root remains the single `default` project. The browser receives only
+allowlist in `config.sqlite3`. The first entry is the default. `RC_PROJECTS` and
+`RC_PROJECT_PATH` are accepted only for one-time legacy import. The browser receives only
 project IDs and names and selects an ID before creating a conversation. The server
 resolves the corresponding directory immediately before `thread/start`; an unavailable
 directory returns `project_unavailable`. The application WebSocket reports readiness, turn start,

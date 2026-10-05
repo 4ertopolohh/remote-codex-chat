@@ -15,6 +15,10 @@ import httpx
 from argon2 import PasswordHasher
 from websockets.asyncio.client import connect
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from config_store import ConfigStore, Configuration
+from projects import Project
+
 ORIGIN = "http://127.0.0.1:8766"
 
 
@@ -65,14 +69,18 @@ async def turn(
 async def main() -> None:
     password = secrets.token_urlsafe(24)
     with tempfile.TemporaryDirectory(prefix="rc014-local-") as directory:
+        config_path = Path(directory) / "config.sqlite3"
+        ConfigStore(config_path).bootstrap(Configuration(
+            PasswordHasher().hash(password), "local", ORIGIN,
+            [Project("probe", "Probe", Path(directory))],
+        ))
         env = os.environ.copy()
+        for name in ("RC_PASSWORD_HASH", "RC_PROJECTS", "RC_PROJECT_PATH", "RC_AUTH_MODE", "RC_PUBLIC_ORIGIN"):
+            env.pop(name, None)
         env.update({
-            "RC_PASSWORD_HASH": PasswordHasher().hash(password),
-            "RC_AUTH_MODE": "local",
-            "RC_PUBLIC_ORIGIN": ORIGIN,
+            "RC_CONFIG_DATABASE_PATH": str(config_path),
             "RC_AUTH_DATABASE_PATH": str(Path(directory) / "auth.sqlite3"),
             "RC_DATABASE_PATH": str(Path(directory) / "conversations.sqlite3"),
-            "RC_PROJECTS": json.dumps([{"id": "probe", "name": "Probe", "path": directory}]),
         })
         server = await asyncio.create_subprocess_exec(
             sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8766",
@@ -144,6 +152,41 @@ async def main() -> None:
                 await asyncio.wait_for(server.wait(), 5)
             # Windows can briefly retain SQLite file handles after process exit.
             await asyncio.sleep(0.5)
+        restarted = await asyncio.create_subprocess_exec(
+            sys.executable, "-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8766",
+            env=env, stdout=DEVNULL, stderr=DEVNULL,
+        )
+        try:
+            async with httpx.AsyncClient(base_url=ORIGIN, timeout=10) as client:
+                for _ in range(100):
+                    if restarted.returncode is not None:
+                        raise RuntimeError(f"Restarted backend exited with code {restarted.returncode}")
+                    try:
+                        if (await client.get("/health")).status_code == 200:
+                            break
+                    except httpx.HTTPError:
+                        pass
+                    await asyncio.sleep(0.2)
+                else:
+                    raise RuntimeError("Restarted backend did not become healthy")
+                login = await client.post("/auth/login", headers={"Origin": ORIGIN}, json={"password": password})
+                assert login.status_code == 200
+                cookie = client.cookies.get("rc_session")
+                async with connect("ws://127.0.0.1:8766/ws/chat", origin=ORIGIN,
+                                   additional_headers={"Cookie": f"rc_session={cookie}"}) as socket:
+                    await event_of(socket, "ready")
+                    await socket.send(json.dumps({"type": "list_projects"}))
+                    assert [p["id"] for p in (await event_of(socket, "project_list"))["projects"]] == ["probe"]
+                    await socket.send(json.dumps({"type": "select_conversation", "id": conversation_id}))
+                    assert (await event_of(socket, "conversation_selected"))["conversation"]["id"] == conversation_id
+            print("PASS: restart without password/project environment, login, project and conversation recovery")
+        finally:
+            restarted.terminate()
+            try:
+                await asyncio.wait_for(restarted.wait(), 10)
+            except TimeoutError:
+                restarted.kill()
+                await asyncio.wait_for(restarted.wait(), 5)
 
 
 if __name__ == "__main__":

@@ -30,14 +30,26 @@ class AuthSettings:
     @classmethod
     def from_env(cls) -> AuthSettings:
         password_hash = os.environ.get("RC_PASSWORD_HASH", "")
+        mode = os.environ.get("RC_AUTH_MODE", "local")
+        origin = os.environ.get("RC_PUBLIC_ORIGIN", "" if mode == "remote" else "http://localhost:5173")
+        cls.validate(password_hash, mode, origin)
+        return cls(password_hash, origin, mode == "remote",
+                   Path(os.environ.get("RC_AUTH_DATABASE_PATH", Path(__file__).resolve().parent / "data" / "auth.sqlite3")))
+
+    @staticmethod
+    def validate(password_hash: str, mode: str, origin: str) -> None:
         if not password_hash.startswith("$argon2id$"):
             raise ValueError("RC_PASSWORD_HASH must contain an Argon2id hash")
-        remote = os.environ.get("RC_AUTH_MODE", "local") == "remote"
-        if os.environ.get("RC_AUTH_MODE", "local") not in {"local", "remote"}:
+        try:
+            from argon2 import extract_parameters
+            extract_parameters(password_hash)
+        except (InvalidHashError, ValueError) as exc:
+            raise ValueError("Invalid Argon2id password hash") from exc
+        remote = mode == "remote"
+        if mode not in {"local", "remote"}:
             raise ValueError("RC_AUTH_MODE must be local or remote")
-        origin = os.environ.get("RC_PUBLIC_ORIGIN", "" if remote else "http://localhost:5173")
         parsed = urlsplit(origin)
-        if not parsed.scheme or not parsed.netloc or parsed.path or parsed.query or parsed.fragment:
+        if not parsed.scheme or not parsed.netloc or parsed.path or parsed.query or parsed.fragment or parsed.username or parsed.password:
             raise ValueError("RC_PUBLIC_ORIGIN must be one exact origin")
         if remote and parsed.scheme != "https":
             raise ValueError("Remote mode requires an HTTPS RC_PUBLIC_ORIGIN")
@@ -45,10 +57,6 @@ class AuthSettings:
             raise ValueError("Local mode requires an HTTP RC_PUBLIC_ORIGIN")
         if not remote and parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
             raise ValueError("Local mode requires a loopback RC_PUBLIC_ORIGIN")
-        return cls(
-            password_hash, origin, remote,
-            Path(os.environ.get("RC_AUTH_DATABASE_PATH", Path(__file__).resolve().parent / "data" / "auth.sqlite3")),
-        )
 
     @property
     def cookie_name(self) -> str:

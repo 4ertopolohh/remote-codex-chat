@@ -15,6 +15,7 @@ def auth_environment(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     monkeypatch.setenv("RC_PUBLIC_ORIGIN", TEST_ORIGIN)
     monkeypatch.setenv("RC_AUTH_DATABASE_PATH", str(tmp_path / "auth.sqlite3"))
     monkeypatch.setenv("RC_AUTH_MODE", "local")
+    monkeypatch.setenv("RC_CONFIG_DATABASE_PATH", str(tmp_path / "config.sqlite3"))
 
 
 class AuthenticatedTestClient(BaseTestClient):

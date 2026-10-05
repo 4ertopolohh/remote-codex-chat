@@ -60,6 +60,7 @@ from codex_bridge import (
     ThreadStatusChanged,
     TurnCompleted,
 )
+from config_store import ConfigStore, Configuration
 from conversation_store import ConversationStore
 from projects import Project, ProjectAllowlist, ProjectUnavailable
 
@@ -95,7 +96,20 @@ def create_app(
         if experimental_features is None
         else experimental_features
     )
-    if project is not None:
+    config_store = ConfigStore()
+    persistent = None if project is not None or auth_settings is not None else config_store.load()
+    if persistent is None and project is None and auth_settings is None and os.environ.get("RC_PASSWORD_HASH"):
+        legacy = AuthSettings.from_env()
+        if os.environ.get("RC_PROJECTS") is not None:
+            legacy_projects = list(ProjectAllowlist.from_json(os.environ["RC_PROJECTS"])._projects.values())
+        else:
+            fallback = Path(os.environ.get("RC_PROJECT_PATH", Path(__file__).resolve().parents[1]))
+            legacy_projects = [Project("default", "Default", fallback)]
+        config_store.bootstrap(Configuration(legacy.password_hash, "remote" if legacy.remote else "local", legacy.origin, legacy_projects))
+        persistent = config_store.load()
+    if persistent is not None:
+        projects = ProjectAllowlist(persistent.projects)
+    elif project is not None:
         projects = ProjectAllowlist([Project("default", "Default", project.resolve())])
     elif os.environ.get("RC_PROJECTS") is not None:
         projects = ProjectAllowlist.from_json(os.environ["RC_PROJECTS"])
@@ -135,7 +149,17 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        auth = AuthService(auth_settings or AuthSettings.from_env())
+        if persistent is not None:
+            mode = os.environ.get("RC_AUTH_MODE", persistent.mode)
+            origin = os.environ.get("RC_PUBLIC_ORIGIN", persistent.origin)
+            AuthSettings.validate(persistent.password_hash, mode, origin)
+            settings = AuthSettings(persistent.password_hash, origin, mode == "remote",
+                                    Path(os.environ.get("RC_AUTH_DATABASE_PATH", Path(__file__).resolve().parent / "data" / "auth.sqlite3")))
+        else:
+            if auth_settings is None and not os.environ.get("RC_PASSWORD_HASH"):
+                raise ValueError("Application is not configured; run uv run --no-sync python scripts/configure.py init (Argon2id password hash required)")
+            settings = auth_settings or AuthSettings.from_env()
+        auth = AuthService(settings)
         if auth.settings.remote and not (frontend_dist / "index.html").is_file():
             raise ValueError("Remote mode requires a built frontend at RC_FRONTEND_DIST")
         auth.initialize()
