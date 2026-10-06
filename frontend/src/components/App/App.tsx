@@ -16,7 +16,7 @@ import styles from './App.module.scss'
 import responsive from './App768.module.scss'
 import narrow from './App480.module.scss'
 import short from './AppHeight480.module.scss'
-import logoUrl from '../../../../logo.png'
+import logoUrl from '../../../../logo-no-background.png'
 
 export function App({ onLogout, onAuthRequired, authError }: { onLogout?: () => void; onAuthRequired?: () => void; authError?: string | null }) {
   const chat = useChat(onAuthRequired)

@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef } from 'react'
 import type { Message } from '../../chat/useChat'
 import styles from './Conversation.module.scss'
 import narrow from './Conversation480.module.scss'
-import logoUrl from '../../../../logo.png'
+import logoUrl from '../../../../logo-no-background.png'
 
 function renderMessageText(text: string) {
   return <div className={styles.text}>{text.split(/(```[\s\S]*?(?:```|$))/g).map((part, index) => {

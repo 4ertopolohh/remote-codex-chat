@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { App } from '../App/App'
 import { ActionButton } from '../ActionButton/ActionButton'
 import styles from './AuthGate.module.scss'
-import logoUrl from '../../../../logo.png'
+import logoUrl from '../../../../logo-no-background.png'
 
 type AuthState = { status: 'checking' | 'signed-out' | 'signed-in'; csrf: string | null; error: string | null }
 
