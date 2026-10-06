@@ -19,8 +19,9 @@ built frontend from the same origin when present; remote mode requires that buil
 HTTPS. See `frontend/README.md` for setup and the local/remote cookie distinction.
 
 
-The browser will talk to FastAPI. FastAPI owns one `CodexBridge` for its application
-lifetime. `CodexBridge` owns a local `codex app-server` child process and uses the
+The browser talks to FastAPI. FastAPI owns one active main `CodexBridge` at a time
+and replaces it when recovery from a stalled turn requires a fresh child process.
+`CodexBridge` owns a local `codex app-server` child process and uses the
 validated RC-001 newline-delimited stdio transport. The PoC CLI imports that same
 transport; there is one framing and JSON-RPC implementation.
 
@@ -77,8 +78,11 @@ The WebSocket accepts `new_conversation`, `list_conversations`, and
 independent Codex thread and records its ID. Selecting one resolves its configured
 project path, passes it to `thread/resume` through `CodexBridge`, and verifies the
 effective cwd in the response. A mismatch rejects the conversation as unavailable.
-The application then calls `thread/read` with `includeTurns: true` to rebuild the
-text-only display from persisted user and agent items. Browser local storage remembers
+The application reads `thread/items/list` pages in a disposable app-server to rebuild the
+text-only display from persisted user and agent items. Unsupported legacy threads use
+`thread/read` in that disposable process when no other process owns their writer.
+History reads have a deadline, so a stalled thread cannot poison the main bridge.
+Browser local storage remembers
 only the selected application ID; on reload/reconnect it requests the list and selects
 that ID. After a backend restart, the same SQLite file supplies the thread ID.
 Tab session storage also retains the IDs of conversations whose submitted turn has
@@ -88,11 +92,11 @@ the prompt automatically.
 Unavailable or deleted Codex threads return `thread_unavailable` and the user can
 start another conversation. Missing application IDs return `conversation_not_found`.
 
-The installed `codex-cli 0.160.0` returned full turns from `thread/read` across a
-process restart. Experimental pagination methods also worked with opt-in, but are not
-needed for this small UI. See [protocol research](poc/RC-003-thread-history-research.md)
-for current upstream caveats. Long conversations may eventually need native
-pagination; there is no SQLite transcript cache.
+The installed `codex-cli 0.160.0` supports item pagination with experimental opt-in.
+One saved thread stalls on its later item page, so the isolated reader may report
+`thread_unavailable` for that thread while the main bridge continues serving new chats,
+models, and usage. See [protocol research](poc/RC-003-thread-history-research.md)
+for upstream caveats. There is no SQLite transcript cache.
 
 ## Runtime controls (RC-005)
 
@@ -110,8 +114,10 @@ adds text to that turn through `turn/steer`, while `stop_turn` requests
 only after `turn_started` and disables both while a stop request is pending.
 
 Collaboration modes require `RC_EXPERIMENTAL_FEATURES=1`. Without that explicit
-setting, the bridge does not opt into the experimental Codex protocol or query
-`collaborationMode/list`. With it, the UI shows only modes returned by the runtime.
+setting, the main chat bridge does not opt into the experimental Codex protocol or
+query `collaborationMode/list`. The disposable history reader opts in only to use
+`thread/items/list`; it never handles a chat turn. With the setting, the UI shows
+only modes returned by the runtime.
 Selecting a mode applies any model and reasoning preset returned by the runtime;
 the user can then choose another supported value before starting the turn.
 Missing or rejected experimental discovery produces an empty mode list and normal

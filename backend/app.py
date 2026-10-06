@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import time
 from collections.abc import AsyncIterator, Callable
@@ -65,6 +66,7 @@ from conversation_store import ConversationStore
 from projects import Project, ProjectAllowlist, ProjectUnavailable
 
 _client_message_adapter = TypeAdapter(ClientMessage)
+_logger = logging.getLogger(__name__)
 
 
 async def send_event(ws: WebSocket, event: ServerEvent) -> None:
@@ -90,7 +92,10 @@ def create_app(
     database: Path | None = None,
     experimental_features: bool | None = None,
     auth_settings: AuthSettings | None = None,
+    drain_timeout: float = 15.0,
 ) -> FastAPI:
+    if drain_timeout <= 0:
+        raise ValueError("drain_timeout must be positive")
     experimental = (
         os.environ.get("RC_EXPERIMENTAL_FEATURES") == "1"
         if experimental_features is None
@@ -132,18 +137,50 @@ def create_app(
     chat_active = False
     draining_tasks: set[asyncio.Task[object]] = set()
 
+    def make_bridge() -> CodexBridge:
+        return (
+            CodexBridge(experimental_features=experimental)
+            if bridge_factory is CodexBridge
+            else bridge_factory()
+        )
+
+    async def close_bridge_or_abort(bridge: CodexBridge) -> None:
+        try:
+            await asyncio.wait_for(bridge.close(), timeout=min(drain_timeout, 8.0))
+        except asyncio.CancelledError:
+            bridge.abort()
+            raise
+        except (OSError, RuntimeError) as exc:
+            _logger.warning("Failed to close stalled Codex app-server: %s", type(exc).__name__)
+            bridge.abort()
+
+    async def replace_bridge(bridge: CodexBridge) -> None:
+        await close_bridge_or_abort(bridge)
+        replacement = make_bridge()
+        app.state.bridge = replacement
+        try:
+            await asyncio.wait_for(replacement.start(), timeout=10.0)
+        except (BridgeError, TimeoutError) as exc:
+            _logger.warning("Failed to restart Codex app-server: %s", type(exc).__name__)
+            await close_bridge_or_abort(replacement)
+
     async def drain_interrupted_turn(bridge: CodexBridge, thread_id: str, active_turn_id: str) -> None:
         nonlocal chat_active
         try:
-            while True:
-                event = await bridge.next_event()
-                if isinstance(event, TurnCompleted) and (
-                    event.thread_id, event.turn_id
-                ) == (thread_id, active_turn_id):
-                    return
-        except BridgeError:
-            # A terminated app-server cannot emit the completion event.
-            pass
+            async with asyncio.timeout(drain_timeout):
+                try:
+                    await bridge.interrupt_turn(thread_id, active_turn_id)
+                except BridgeError:
+                    pass
+                while True:
+                    event = await bridge.next_event()
+                    if isinstance(event, TurnCompleted) and (
+                        event.thread_id, event.turn_id
+                    ) == (thread_id, active_turn_id):
+                        return
+        except (BridgeError, TimeoutError) as exc:
+            _logger.warning("Interrupted Codex turn did not finish: %s", type(exc).__name__)
+            await replace_bridge(bridge)
         finally:
             chat_active = False
 
@@ -165,11 +202,7 @@ def create_app(
         auth.initialize()
         app.state.auth = auth
         store.initialize()
-        bridge = (
-            CodexBridge(experimental_features=experimental)
-            if bridge_factory is CodexBridge
-            else bridge_factory()
-        )
+        bridge = make_bridge()
         app.state.bridge = bridge
         await bridge.start()
         try:
@@ -179,7 +212,7 @@ def create_app(
                 task.cancel()
             if draining_tasks:
                 await asyncio.gather(*draining_tasks, return_exceptions=True)
-            await bridge.close()
+            await app.state.bridge.close()
 
     app = FastAPI(lifespan=lifespan)
 
@@ -262,7 +295,11 @@ def create_app(
             await ws.close(code=1008, reason="Chat is already in use")
             return
         chat_active = True
-        await ws.accept()
+        try:
+            await ws.accept()
+        except BaseException:
+            chat_active = False
+            raise
         assert token is not None
         auth.register_socket(token, ws)
         async def expire_socket() -> None:
@@ -583,6 +620,8 @@ def create_app(
                                 event.thread_id,
                                 event.turn_id,
                             ) == (conversation.thread_id, turn_id):
+                                # Completion is known even if sending it to the browser fails.
+                                turn_id = None
                                 for pending_id in tuple(visible_requests):
                                     await bridge.cancel_request(pending_id)
                                     await send_event(
@@ -608,7 +647,6 @@ def create_app(
                                         ]
                                     ),
                                 )
-                                turn_id = None
                         if receive_task in done:
                             completed_receive_task = receive_task
                             receive_task = None
@@ -731,10 +769,6 @@ def create_app(
             except BridgeError:
                 pass
             if conversation is not None and turn_id is not None:
-                try:
-                    await bridge.interrupt_turn(conversation.thread_id, turn_id)
-                except BridgeError:
-                    pass
                 task = asyncio.create_task(
                     drain_interrupted_turn(bridge, conversation.thread_id, turn_id)
                 )

@@ -499,15 +499,18 @@ async def test_read_messages_projects_persisted_codex_items(tmp_path: Path) -> N
         HANDSHAKE
         + """
 request = read()
-assert request['method'] == 'thread/read'
-assert request['params'] == {'threadId': 'thread-1', 'includeTurns': True}
-send({'id': request['id'], 'result': {'thread': {'turns': [
-    {'items': [
-        {'type': 'userMessage', 'content': [{'type': 'text', 'text': 'hello'}]},
-        {'type': 'agentMessage', 'text': 'hi'},
-        {'type': 'commandExecution', 'command': 'pwd'},
-    ]},
-]}}})
+assert request['method'] == 'thread/items/list'
+assert request['params'] == {'threadId': 'thread-1', 'limit': 10}
+send({'id': request['id'], 'result': {'data': [
+    {'item': {'type': 'userMessage', 'content': [{'type': 'text', 'text': 'hello'}]}},
+    {'item': {'type': 'commandExecution', 'command': 'pwd'}},
+], 'nextCursor': 'page-2'}})
+request = read()
+assert request['method'] == 'thread/items/list'
+assert request['params'] == {'threadId': 'thread-1', 'limit': 10, 'cursor': 'page-2'}
+send({'id': request['id'], 'result': {'data': [
+    {'item': {'type': 'agentMessage', 'text': 'hi'}},
+], 'nextCursor': None}})
 sys.stdin.readline()
 """,
     )
@@ -529,14 +532,14 @@ async def test_failed_history_read_does_not_block_new_threads(tmp_path: Path) ->
         + f"\nfrom pathlib import Path\nmarker = Path({str(marker)!r})\n"
         + """
 if marker.exists():
-    resume = read()
-    assert resume['method'] == 'thread/resume'
-    send({'id': resume['id'], 'result': {
-        'thread': {'id': resume['params']['threadId']},
-        'cwd': resume['params']['cwd'],
-    }})
     history = read()
-    assert history['method'] == 'thread/read'
+    assert history['method'] == 'thread/items/list'
+    send({'id': history['id'], 'result': {'data': [
+        {'item': {'type': 'userMessage', 'content': [{'type': 'text', 'text': 'earlier'}]}},
+    ], 'nextCursor': 'later'}})
+    history = read()
+    assert history['method'] == 'thread/items/list'
+    assert history['params']['cursor'] == 'later'
     sys.stdin.readline()
 else:
     marker.write_text('ready')
@@ -566,18 +569,17 @@ async def test_restore_thread_owned_by_current_bridge(tmp_path: Path) -> None:
         + f"\nfrom pathlib import Path\nmarker = Path({str(marker)!r})\n"
         + """
 if marker.exists():
-    unexpected = read()
-    send({'id': unexpected['id'], 'error': {'code': -32600, 'message': 'active writer'}})
+    history = read()
+    assert history['method'] == 'thread/items/list'
+    send({'id': history['id'], 'result': {'data': [
+        {'item': {'type': 'userMessage', 'content': [{'type': 'text', 'text': 'hello'}]}},
+    ], 'nextCursor': None}})
+    sys.stdin.readline()
 else:
     marker.write_text('ready')
     created = read()
     assert created['method'] == 'thread/start'
     send({'id': created['id'], 'result': {'thread': {'id': 'owned-thread'}}})
-    history = read()
-    assert history['method'] == 'thread/read'
-    send({'id': history['id'], 'result': {'thread': {'turns': [
-        {'items': [{'type': 'userMessage', 'content': [{'type': 'text', 'text': 'hello'}]}]},
-    ]}}})
     sys.stdin.readline()
 """,
         encoding="utf-8",
@@ -588,6 +590,103 @@ else:
         assert await bridge.start_thread(tmp_path) == "owned-thread"
         assert await bridge.restore_thread("owned-thread", tmp_path) == (
             "owned-thread", [{"role": "user", "text": "hello"}]
+        )
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_stalled_history_reader_close_does_not_block_main_bridge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    marker = tmp_path / "main-started"
+    script = tmp_path / "history_close_server.py"
+    script.write_text(
+        HANDSHAKE
+        + f"\nfrom pathlib import Path\nmarker = Path({str(marker)!r})\n"
+        + """
+if marker.exists():
+    history = read()
+    assert history['method'] == 'thread/items/list'
+    send({'id': history['id'], 'result': {'data': [], 'nextCursor': None}})
+    sys.stdin.readline()
+else:
+    marker.write_text('ready')
+    created = read()
+    assert created['method'] == 'thread/start'
+    send({'id': created['id'], 'result': {'thread': {'id': 'new-thread'}}})
+    sys.stdin.readline()
+""",
+        encoding="utf-8",
+    )
+    bridge = CodexBridge(command=(sys.executable, "-S", str(script)), request_timeout=0.2)
+    await bridge.start()
+    original_close = CodexBridge.close
+    aborted = False
+
+    async def stalled_reader_close(self: CodexBridge) -> None:
+        if self is bridge:
+            await original_close(self)
+        else:
+            await asyncio.Future()
+
+    original_abort = CodexBridge.abort
+
+    def track_abort(self: CodexBridge) -> None:
+        nonlocal aborted
+        aborted = True
+        original_abort(self)
+
+    monkeypatch.setattr(CodexBridge, "close", stalled_reader_close)
+    monkeypatch.setattr(CodexBridge, "abort", track_abort)
+    try:
+        with pytest.raises(OperationFailed, match="closing conversation history"):
+            await asyncio.wait_for(bridge.restore_thread("old-thread", tmp_path), timeout=3)
+        assert aborted
+        assert await bridge.start_thread(tmp_path) == "new-thread"
+    finally:
+        await bridge.close()
+
+
+@pytest.mark.asyncio
+async def test_restore_legacy_thread_uses_isolated_full_history(tmp_path: Path) -> None:
+    marker = tmp_path / "main-started"
+    script = tmp_path / "legacy_thread_server.py"
+    script.write_text(
+        HANDSHAKE
+        + f"\nfrom pathlib import Path\nmarker = Path({str(marker)!r})\n"
+        + """
+if marker.exists():
+    page = read()
+    assert page['method'] == 'thread/items/list'
+    send({'id': page['id'], 'error': {'code': -32601, 'message': 'Method not found'}})
+    resume = read()
+    assert resume['method'] == 'thread/resume'
+    send({'id': resume['id'], 'result': {
+        'thread': {'id': resume['params']['threadId']}, 'cwd': resume['params']['cwd'],
+    }})
+    history = read()
+    assert history['method'] == 'thread/read'
+    send({'id': history['id'], 'result': {'thread': {'turns': [
+        {'items': [{'type': 'agentMessage', 'text': 'restored'}]},
+    ]}}})
+    sys.stdin.readline()
+else:
+    marker.write_text('ready')
+    resume = read()
+    assert resume['method'] == 'thread/resume'
+    send({'id': resume['id'], 'result': {
+        'thread': {'id': resume['params']['threadId']}, 'cwd': resume['params']['cwd'],
+    }})
+    sys.stdin.readline()
+""",
+        encoding="utf-8",
+    )
+    bridge = CodexBridge(command=(sys.executable, "-S", str(script)), request_timeout=0.2)
+    await bridge.start()
+    try:
+        assert await bridge.restore_thread("legacy-thread", tmp_path) == (
+            "legacy-thread", [{"role": "assistant", "text": "restored"}]
         )
     finally:
         await bridge.close()

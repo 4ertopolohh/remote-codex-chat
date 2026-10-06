@@ -6,8 +6,9 @@ from pathlib import Path
 
 import pytest
 from conftest import AuthenticatedTestClient as TestClient
-from starlette.websockets import WebSocketDisconnect
+from starlette.websockets import WebSocket, WebSocketDisconnect
 
+import app as app_module
 from app import create_app
 from codex_bridge import (
     AgentMessageDelta,
@@ -372,6 +373,135 @@ def test_app_server_crash_while_draining_releases_chat_for_reconnect(tmp_path: P
                 time.sleep(0.01)
         else:
             pytest.fail("chat remained locked after app-server crash")
+
+
+def test_missing_turn_completion_does_not_lock_chat_forever(tmp_path: Path) -> None:
+    bridges: list[FakeBridge] = []
+
+    def bridge_factory() -> FakeBridge:
+        bridge = FakeBridge()
+        bridges.append(bridge)
+        return bridge
+
+    app = create_app(
+        bridge_factory, project=tmp_path, database=tmp_path / "chat.sqlite3",
+        drain_timeout=0.05,
+    )
+    with TestClient(app) as client:
+        bridge = bridges[0]
+        with client.websocket_connect("/ws/chat") as ws:
+            assert ws.receive_json() == {"type": "ready"}
+            ws.send_json({"type": "submit_prompt", "text": "hello"})
+            assert ws.receive_json()["type"] == "conversation_selected"
+            assert ws.receive_json() == {"type": "turn_started"}
+        for _ in range(100):
+            if bridge.interrupted:
+                break
+            time.sleep(0.01)
+        assert bridge.interrupted == [("thread-1", "turn-1")]
+        for _ in range(100):
+            try:
+                with client.websocket_connect("/ws/chat") as reconnected:
+                    assert reconnected.receive_json() == {"type": "ready"}
+                break
+            except WebSocketDisconnect:
+                time.sleep(0.01)
+        else:
+            pytest.fail("chat remained locked after an interrupted turn timed out")
+        assert len(bridges) == 2
+        assert bridges[1].ready
+
+
+def test_stalled_bridge_close_cannot_hold_chat_slot(tmp_path: Path) -> None:
+    class StalledCloseBridge(FakeBridge):
+        aborted = False
+
+        async def close(self) -> None:
+            await asyncio.Future()
+
+        def abort(self) -> None:
+            self.aborted = True
+            self.ready = False
+
+    bridges: list[FakeBridge] = []
+
+    def bridge_factory() -> FakeBridge:
+        bridge = StalledCloseBridge() if not bridges else FakeBridge()
+        bridges.append(bridge)
+        return bridge
+
+    app = create_app(
+        bridge_factory, project=tmp_path, database=tmp_path / "chat.sqlite3",
+        drain_timeout=0.05,
+    )
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/chat") as ws:
+            ws.receive_json()
+            ws.send_json({"type": "submit_prompt", "text": "hello"})
+            ws.receive_json()
+            assert ws.receive_json() == {"type": "turn_started"}
+        for _ in range(100):
+            try:
+                with client.websocket_connect("/ws/chat") as reconnected:
+                    assert reconnected.receive_json() == {"type": "ready"}
+                break
+            except WebSocketDisconnect:
+                time.sleep(0.01)
+        else:
+            pytest.fail("chat remained locked while old app-server close stalled")
+        assert len(bridges) == 2
+        assert isinstance(bridges[0], StalledCloseBridge) and bridges[0].aborted
+
+
+def test_disconnect_after_turn_completion_releases_chat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bridge = FakeBridge()
+    app = create_app(lambda: bridge, project=tmp_path, database=tmp_path / "chat.sqlite3")
+    original_send_event = app_module.send_event
+
+    async def disconnect_after_completion(ws, event) -> None:
+        if type(event).__name__ == "ConversationList":
+            raise WebSocketDisconnect(code=1006)
+        await original_send_event(ws, event)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/chat") as ws:
+            assert ws.receive_json() == {"type": "ready"}
+            ws.send_json({"type": "submit_prompt", "text": "hello"})
+            assert ws.receive_json()["type"] == "conversation_selected"
+            assert ws.receive_json() == {"type": "turn_started"}
+            monkeypatch.setattr(app_module, "send_event", disconnect_after_completion)
+            bridge.events.put_nowait(TurnCompleted("thread-1", "turn-1", "completed"))
+            assert ws.receive_json() == {"type": "turn_completed", "status": "completed"}
+        for _ in range(100):
+            if bridge.interrupted:
+                break
+            time.sleep(0.01)
+        monkeypatch.setattr(app_module, "send_event", original_send_event)
+        with client.websocket_connect("/ws/chat") as reconnected:
+            assert reconnected.receive_json() == {"type": "ready"}
+
+
+def test_failed_websocket_accept_releases_chat(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    bridge = FakeBridge()
+    app = create_app(lambda: bridge, project=tmp_path, database=tmp_path / "chat.sqlite3")
+    original_accept = WebSocket.accept
+    fail_next = True
+
+    async def fail_once(socket: WebSocket) -> None:
+        nonlocal fail_next
+        if fail_next:
+            fail_next = False
+            raise WebSocketDisconnect(code=1006)
+        await original_accept(socket)
+
+    with TestClient(app) as client:
+        monkeypatch.setattr(WebSocket, "accept", fail_once)
+        with pytest.raises(WebSocketDisconnect), client.websocket_connect("/ws/chat"):
+            pass
+        with client.websocket_connect("/ws/chat") as reconnected:
+            assert reconnected.receive_json() == {"type": "ready"}
 
 
 def test_replayed_submission_id_does_not_start_a_second_turn_after_restart(tmp_path: Path) -> None:

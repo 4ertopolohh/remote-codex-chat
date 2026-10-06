@@ -193,6 +193,14 @@ class CodexBridge:
             self._pump.cancel()
             await asyncio.gather(self._pump, return_exceptions=True)
 
+    def abort(self) -> None:
+        """Stop a stalled app-server without waiting for protocol cooperation."""
+        self._ready = False
+        self._owned_threads.clear()
+        if self._pump is not None:
+            self._pump.cancel()
+        self._client.abort()
+
     async def start_thread(
         self, project: Path, *, approval_policy: str | None = None
     ) -> str:
@@ -228,29 +236,76 @@ class CodexBridge:
     async def restore_thread(
         self, thread_id: str, project: Path
     ) -> tuple[str, list[dict[str, str]]]:
-        """Read unowned history separately before claiming its writer."""
+        """Read history outside the main app-server, then claim its writer."""
         owned_project = self._owned_threads.get(thread_id)
-        if owned_project is not None:
-            if owned_project != project.resolve():
-                raise OperationFailed("Thread belongs to another project")
-            return thread_id, await self.read_messages(thread_id)
+        if owned_project is not None and owned_project != project.resolve():
+            raise OperationFailed("Thread belongs to another project")
         reader = CodexBridge(
             command=self._client.command,
-            request_timeout=min(self._request_timeout, 10.0),
-            experimental_features=self._experimental_features,
+            request_timeout=min(self._request_timeout, 5.0),
+            experimental_features=True,
         )
         try:
             await reader.start()
-            resumed_id = await reader.resume_thread(thread_id, project)
-            if resumed_id != thread_id:
-                raise OperationFailed("Resumed a different Codex thread")
-            messages = await reader.read_messages(thread_id)
+            try:
+                async with asyncio.timeout(15.0):
+                    try:
+                        messages = await reader.read_messages(thread_id)
+                    except OperationFailed as exc:
+                        rpc_error = exc.__cause__
+                        if not (
+                            owned_project is None
+                            and isinstance(rpc_error, AppServerRpcError)
+                            and rpc_error.code == -32601
+                        ):
+                            raise
+                        resumed_id = await reader.resume_thread(thread_id, project)
+                        if resumed_id != thread_id:
+                            raise OperationFailed("Resumed a different Codex thread")
+                        messages = await reader._read_messages_full(thread_id)
+            except TimeoutError as exc:
+                raise OperationFailed("Timed out reading conversation history") from exc
         finally:
-            await reader.close()
+            try:
+                await asyncio.wait_for(reader.close(), timeout=2.0)
+            except asyncio.CancelledError:
+                reader.abort()
+                raise
+            except (OSError, RuntimeError, TimeoutError) as exc:
+                reader.abort()
+                raise OperationFailed("Timed out or failed closing conversation history") from exc
+        if owned_project is not None:
+            return thread_id, messages
         return await self.resume_thread(thread_id, project), messages
 
     async def read_messages(self, thread_id: str) -> list[dict[str, str]]:
-        """Project persisted Codex turns into the chat's text-only presentation."""
+        """Project paged Codex items into the chat's text-only presentation."""
+        messages: list[dict[str, str]] = []
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        while True:
+            params: dict[str, Any] = {"threadId": thread_id, "limit": 10}
+            if cursor is not None:
+                params["cursor"] = cursor
+            result = await self._request("thread/items/list", params)
+            entries = result.get("data") if isinstance(result, dict) else None
+            if not isinstance(entries, list):
+                raise MalformedProtocol("Missing thread item page")
+            items = []
+            for entry in entries:
+                item = entry.get("item") if isinstance(entry, dict) else None
+                if not isinstance(item, dict):
+                    raise MalformedProtocol("Malformed thread item")
+                items.append(item)
+            messages.extend(self._project_messages(items))
+            cursor = result.get("nextCursor")
+            if cursor is None:
+                return messages
+            if not isinstance(cursor, str) or not cursor or cursor in seen_cursors:
+                raise MalformedProtocol("Invalid thread item cursor")
+            seen_cursors.add(cursor)
+
+    async def _read_messages_full(self, thread_id: str) -> list[dict[str, str]]:
         result = await self._request(
             "thread/read", {"threadId": thread_id, "includeTurns": True}
         )
@@ -258,30 +313,34 @@ class CodexBridge:
         turns = thread.get("turns") if isinstance(thread, dict) else None
         if not isinstance(turns, list):
             raise MalformedProtocol("Missing thread.turns in app-server response")
-        messages: list[dict[str, str]] = []
+        items: list[dict[str, Any]] = []
         for turn in turns:
-            items = turn.get("items") if isinstance(turn, dict) else None
-            if not isinstance(items, list):
+            turn_items = turn.get("items") if isinstance(turn, dict) else None
+            if not isinstance(turn_items, list):
                 raise MalformedProtocol("Missing turn.items in app-server response")
-            for item in items:
-                if not isinstance(item, dict):
-                    continue
-                if item.get("type") == "userMessage":
-                    content = item.get("content")
-                    if isinstance(content, list):
-                        text = "\n".join(
-                            part["text"]
-                            for part in content
-                            if isinstance(part, dict)
-                            and part.get("type") == "text"
-                            and isinstance(part.get("text"), str)
-                        )
-                        if text:
-                            messages.append({"role": "user", "text": text})
-                elif item.get("type") == "agentMessage" and isinstance(
-                    item.get("text"), str
-                ):
-                    messages.append({"role": "assistant", "text": item["text"]})
+            items.extend(item for item in turn_items if isinstance(item, dict))
+        return self._project_messages(items)
+
+    @staticmethod
+    def _project_messages(items: list[dict[str, Any]]) -> list[dict[str, str]]:
+        messages: list[dict[str, str]] = []
+        for item in items:
+            if item.get("type") == "userMessage":
+                content = item.get("content")
+                if isinstance(content, list):
+                    text = "\n".join(
+                        part["text"]
+                        for part in content
+                        if isinstance(part, dict)
+                        and part.get("type") == "text"
+                        and isinstance(part.get("text"), str)
+                    )
+                    if text:
+                        messages.append({"role": "user", "text": text})
+            elif item.get("type") == "agentMessage" and isinstance(
+                item.get("text"), str
+            ):
+                messages.append({"role": "assistant", "text": item["text"]})
         return messages
 
     async def list_models(self) -> tuple[ModelCapability, ...]:

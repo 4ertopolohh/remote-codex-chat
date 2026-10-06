@@ -280,6 +280,20 @@ class AppServerClient:
             AppServerError(f"codex app-server exited with code {process.returncode}")
         )
 
+    def abort(self) -> None:
+        """Terminate this child process when graceful shutdown has stalled."""
+        self._closed = True
+        process = self._process
+        if process is not None and process.returncode is None:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+        for task in (self._reader_task, self._stderr_task):
+            if task is not None:
+                task.cancel()
+        self._fail_all(AppServerTerminatedError("codex app-server was aborted"))
+
     async def _send(self, message: Mapping[str, Any]) -> None:
         if self._terminal_error is not None:
             raise self._terminal_error
